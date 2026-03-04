@@ -27,7 +27,7 @@ policy_gates:
   allow:
     - LOW
     - UNKNOWN
-  
+
   # NEW: Only fail on reachable vulnerabilities (ignore unreachable ones)
   fail_on_reachable_only: false
 

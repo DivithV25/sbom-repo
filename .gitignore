@@ -1,3 +1,6 @@
+# Environment variables (SENSITIVE)
+.env
+
 # Python
 __pycache__/
 *.py[cod]
@@ -45,6 +48,9 @@ test_blocked.json
 *.tmp
 extract_pdf.py
 pdf_extraction.txt
+test_local.py
+TESTING-GUIDE.md
+INTEGRATION-README.md
 
 # SBOM artifacts
 sbom.json

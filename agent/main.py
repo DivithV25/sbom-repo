@@ -25,15 +25,60 @@ def main():
         help="Use only OSV (legacy mode, faster)",
         action="store_true"
     )
+    parser.add_argument(
+        "--no-ai",
+        help="Disable AI-powered remediation (AI is enabled by default)",
+        action="store_true"
+    )
+    parser.add_argument(
+        "--multi-agent",
+        help="Enable multi-agent analysis system (advanced mode)",
+        action="store_true"
+    )
+    parser.add_argument(
+        "--project-root",
+        help="Path to project root for code analysis and reachability detection",
+        default=None
+    )
 
     args = parser.parse_args()
 
+    # Check AI configuration
+    import agent.config_loader as cfg
+    use_ai = (not args.no_ai) and cfg.is_ai_enabled()
+
+    if use_ai:
+        print("🤖 AI-powered smart remediation: ENABLED\n")
+
+    if args.multi_agent:
+        print("✅ Multi-agent analysis enabled (--multi-agent flag)\n")
+
+    # If multi-agent mode is enabled, use the orchestrator
+    if args.multi_agent:
+        from agent.multi_agent_orchestrator import MultiAgentOrchestrator
+        orchestrator = MultiAgentOrchestrator(
+            project_root=args.project_root,
+            enable_ai=use_ai,
+            enable_opa=False  # OPA removed
+        )
+
+        print("🧠 Running multi-agent analysis...\n")
+        result = orchestrator.analyze_sbom(args.sbom)
+
+        # Save outputs
+        save_outputs(args.output, result['report_markdown'], result)
+        print(result['report_markdown'])
+        return
+
+    # Standard single-agent mode
     sbom_json = load_sbom(args.sbom)
     components = extract_components(sbom_json)
 
     # Analyze reachability for all components
     print("🔍 Analyzing component reachability...")
-    reachability_data = analyze_all_components(sbom_json)
+    if args.project_root:
+        print(f"   Project root: {args.project_root}")
+    reachability_data = analyze_all_components(sbom_json, project_root=args.project_root)
 
     findings = []
 
@@ -68,13 +113,23 @@ def main():
     findings = enhance_findings_with_reachability(findings, reachability_data)
 
     risk_summary = compute_risk(findings)
-    
+
     # Generate remediation advice
     print("\n💊 Generating remediation recommendations...")
-    remediations = generate_remediation_summary(findings)
+
+    # Use AI remediation by default (unless --no-ai flag is set)
+    if use_ai:
+        from agent.ai_remediation_advisor import generate_ai_remediation_summary
+        remediations = generate_ai_remediation_summary(
+            findings,
+            project_root=args.project_root
+        )
+    else:
+        remediations = generate_remediation_summary(findings)
 
     rules = load_rules(args.rules) if args.rules else None
 
+    # Use Python-based policy evaluation (OPA removed)
     decision, reason = evaluate_policy(risk_summary, findings, rules)
 
     markdown = generate_markdown_report(

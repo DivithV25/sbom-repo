@@ -1,4 +1,5 @@
 from agent.utils import cvss_to_severity
+from agent.config_loader import get_config
 
 
 def compute_risk(findings):
@@ -54,10 +55,14 @@ def compute_risk(findings):
                 max_reachable_cvss = cvss
 
     # Calculate composite risk score (0-10 scale)
-    # Formula: Risk = 0.4 * (vuln_count_factor) + 0.5 * (cvss_factor) + 0.1 * (reachability_factor)
+    # Load weights from configuration
+    cfg = get_config()
+    weights = cfg.get_risk_weights()
+    max_vuln_factor = cfg.get_max_vuln_count_factor()
+    multiplier = cfg.get_vuln_count_multiplier()
 
-    # Vulnerability count factor (normalized, capped at 10)
-    vuln_count_factor = min(reachable_vulns * 2.0, 10.0)
+    # Vulnerability count factor (normalized, capped at max_vuln_factor)
+    vuln_count_factor = min(reachable_vulns * multiplier, max_vuln_factor)
 
     # CVSS factor (use max reachable CVSS)
     cvss_factor = max_reachable_cvss
@@ -69,7 +74,11 @@ def compute_risk(findings):
         reachability_factor = 0.0
 
     # Weighted composite score
-    risk_score = (0.4 * vuln_count_factor) + (0.5 * cvss_factor) + (0.1 * reachability_factor)
+    risk_score = (
+        (weights['vulnerability_count'] * vuln_count_factor) +
+        (weights['cvss_score'] * cvss_factor) +
+        (weights['reachability'] * reachability_factor)
+    )
     risk_score = round(risk_score, 2)
 
     overall_severity = cvss_to_severity(max_reachable_cvss if reachable_vulns > 0 else max_cvss)

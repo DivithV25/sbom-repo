@@ -6,16 +6,45 @@ Level 1 Implementation:
 - Checks dev vs production dependencies
 - Analyzes package properties from SBOM
 
-Level 2 (Future):
-- Static code analysis (import parsing)
-- Call graph analysis
-- Dead code detection
+Level 2 Implementation:
+- Import graph analysis (is package actually imported?)
+- Call graph analysis (are vulnerable functions called?)
+- Function-level precision
 """
 
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
+from agent.config_loader import get_config
 
 
-def analyze_reachability(component: Dict[str, Any], sbom_data: Dict[str, Any]) -> Dict[str, Any]:
+# Level 2 analyzers (imported conditionally to avoid circular dependencies)
+_import_graph_analyzer = None
+_call_graph_analyzer = None
+
+
+def _get_import_analyzer(project_root: str):
+    """Lazy load import graph analyzer"""
+    global _import_graph_analyzer
+    if _import_graph_analyzer is None:
+        from agent.import_graph_analyzer import ImportGraphAnalyzer
+        _import_graph_analyzer = ImportGraphAnalyzer(project_root)
+    return _import_graph_analyzer
+
+
+def _get_call_analyzer(project_root: str):
+    """Lazy load call graph analyzer"""
+    global _call_graph_analyzer
+    if _call_graph_analyzer is None:
+        from agent.call_graph_analyzer import CallGraphAnalyzer
+        _call_graph_analyzer = CallGraphAnalyzer(project_root)
+    return _call_graph_analyzer
+
+
+def analyze_reachability(
+    component: Dict[str, Any],
+    sbom_data: Dict[str, Any],
+    project_root: Optional[str] = None,
+    enable_level_2: bool = False
+) -> Dict[str, Any]:
     """
     Analyze if a component's code is reachable in the application.
 
@@ -96,6 +125,39 @@ def analyze_reachability(component: Dict[str, Any], sbom_data: Dict[str, Any]) -
         # For now, just note that we have dependency data
         result["confidence"] = "medium"
         result["reason"] = "Dependency is explicitly listed - likely used in code"
+
+    # Level 2: Code-level analysis (if enabled and project_root provided)
+    cfg = get_config()
+    if enable_level_2 and project_root and cfg.is_level_2_reachability_enabled():
+        package_name = component.get("name", "")
+
+        if package_name:
+            # Detect language from SBOM or component type
+            language = detect_language_from_component(component, sbom_data)
+
+            try:
+                # Import graph analysis
+                import_analyzer = _get_import_analyzer(project_root)
+                import_result = import_analyzer.analyze_package_usage(package_name, language)
+
+                if not import_result['is_imported']:
+                    # Package not imported anywhere - definitely unreachable
+                    result["reachable"] = False
+                    result["confidence"] = "high"
+                    result["reason"] = f"Level 2: Package '{package_name}' is not imported in any source file"
+                    result["level_2_import_analysis"] = import_result
+                    return result
+
+                elif import_result['is_imported'] and import_result['confidence'] >= 0.8:
+                    # Package is clearly imported - reachable
+                    result["reachable"] = True
+                    result["confidence"] = "high"
+                    result["reason"] = f"Level 2: Package '{package_name}' is imported in {import_result['usage_count']} file(s)"
+                    result["level_2_import_analysis"] = import_result
+
+            except Exception as e:
+                # Level 2 failed, fallback to Level 1
+                result["level_2_error"] = str(e)
 
     return result
 
@@ -207,3 +269,109 @@ def enhance_findings_with_reachability(
         })
 
     return enhanced_findings
+
+
+def detect_language_from_component(component: Dict[str, Any], sbom_data: Dict[str, Any]) -> str:
+    """
+    Detect programming language from component metadata.
+
+    Args:
+        component: SBOM component
+        sbom_data: Full SBOM for context
+
+    Returns:
+        Language name: "javascript", "python", "java", etc.
+    """
+
+    # Check purl (package URL) for ecosystem
+    purl = component.get("purl", "")
+    if "pkg:npm" in purl:
+        return "javascript"
+    elif "pkg:pypi" in purl:
+        return "python"
+    elif "pkg:maven" in purl:
+        return "java"
+    elif "pkg:golang" in purl or "pkg:go" in purl:
+        return "go"
+    elif "pkg:cargo" in purl:
+        return "rust"
+    elif "pkg:nuget" in purl:
+        return "csharp"
+
+    # Check SBOM metadata for project language
+    metadata = sbom_data.get("metadata", {})
+    comp_metadata = metadata.get("component", {})
+
+    # Some SBOMs include language in component type
+    comp_type = comp_metadata.get("type", "").lower()
+    if "javascript" in comp_type or "node" in comp_type:
+        return "javascript"
+    elif "python" in comp_type:
+        return "python"
+
+    # Default to JavaScript for npm packages, Python for pip
+    properties = component.get("properties", [])
+    for prop in properties:
+        if "npm" in prop.get("name", "").lower():
+            return "javascript"
+        elif "pip" in prop.get("name", "").lower() or "python" in prop.get("name", "").lower():
+            return "python"
+
+    # Final fallback
+    return "javascript"  # Most common in web projects
+
+
+def analyze_vulnerable_function_calls(
+    component: Dict[str, Any],
+    vulnerability: Dict[str, Any],
+    project_root: str,
+    vulnerable_functions: List[str] = None
+) -> Dict[str, Any]:
+    """
+    Level 2: Analyze if specific vulnerable functions are actually called.
+
+    Args:
+        component: SBOM component
+        vulnerability: Vulnerability dict with CVE ID
+        project_root: Project root directory
+        vulnerable_functions: List of vulnerable function names
+
+    Returns:
+        Call graph analysis result with confidence score
+    """
+
+    package_name = component.get("name", "")
+    cve_id = vulnerability.get("id", "")
+
+    if not vulnerable_functions:
+        # Try to get from known database
+        from agent.call_graph_analyzer import get_vulnerable_functions_for_cve
+        vulnerable_functions = get_vulnerable_functions_for_cve(package_name, cve_id)
+
+    if not vulnerable_functions:
+        # No known vulnerable functions - assume vulnerability is in any usage
+        return {
+            "is_vulnerable_function_called": None,
+            "confidence": 0.5,
+            "summary": "No specific vulnerable functions known - generic package vulnerability"
+        }
+
+    # Detect language
+    language = detect_language_from_component(component, {})
+
+    try:
+        call_analyzer = _get_call_analyzer(project_root)
+        result = call_analyzer.analyze_vulnerable_function_usage(
+            package_name,
+            vulnerable_functions,
+            language
+        )
+        return result
+    except Exception as e:
+        return {
+            "is_vulnerable_function_called": None,
+            "confidence": 0.5,
+            "summary": f"Call graph analysis failed: {str(e)}",
+            "error": str(e)
+        }
+

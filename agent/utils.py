@@ -1,3 +1,6 @@
+from agent.config_loader import get_config
+
+
 def cvss_to_severity(score: float, thresholds: dict = None) -> str:
     """
     Convert CVSS score to severity level.
@@ -13,13 +16,10 @@ def cvss_to_severity(score: float, thresholds: dict = None) -> str:
     if score is None or score == 0.0:
         return "UNKNOWN"
 
-    # Use custom thresholds if provided, otherwise use CVSS v3.1 standard
+    # Use custom thresholds if provided, otherwise load from config
     if thresholds is None:
-        thresholds = {
-            "critical": 9.0,
-            "high": 7.0,
-            "medium": 4.0
-        }
+        cfg = get_config()
+        thresholds = cfg.get_cvss_thresholds()
 
     if score >= thresholds.get("critical", 9.0):
         return "CRITICAL"

@@ -10,9 +10,7 @@ Note: GitHub Advisory Database is free and doesn't require authentication for pu
 
 import requests
 from typing import List, Dict, Any, Optional
-
-
-GITHUB_ADVISORY_API = "https://api.github.com/advisories"
+from agent.config_loader import get_config
 
 
 def normalize_ecosystem(ecosystem: str) -> str:
@@ -50,6 +48,9 @@ def query_github_advisory(package_name: str, version: str, ecosystem: str = None
 
     vulnerabilities = []
 
+    cfg = get_config()
+    github_api = cfg.get_api_endpoint('github')
+
     try:
         # GitHub Advisory API doesn't support version-specific queries directly
         # We need to query by package and then filter by affected versions
@@ -77,7 +78,7 @@ def query_github_advisory(package_name: str, version: str, ecosystem: str = None
             "X-GitHub-Api-Version": "2022-11-28"
         }
 
-        response = requests.get(GITHUB_ADVISORY_API, params=params, headers=headers, timeout=10)
+        response = requests.get(github_api, params=params, headers=headers, timeout=10)
 
         if response.status_code == 200:
             advisories = response.json()
@@ -95,16 +96,10 @@ def query_github_advisory(package_name: str, version: str, ecosystem: str = None
                 # Get severity
                 severity = advisory.get("severity", "UNKNOWN").upper()
 
-                # If no CVSS, map severity to approximate score
+                # If no CVSS, map severity to approximate score using config
                 if cvss_score is None and severity:
-                    severity_map = {
-                        "CRITICAL": 9.5,
-                        "HIGH": 7.5,
-                        "MODERATE": 5.0,
-                        "MEDIUM": 5.0,
-                        "LOW": 2.5
-                    }
-                    cvss_score = severity_map.get(severity)
+                    cvss_values = cfg.get_cvss_numeric_values()
+                    cvss_score = cvss_values.get(severity)
 
                 # Extract summary and description
                 summary = advisory.get("summary", "")
@@ -177,9 +172,11 @@ def get_advisory_details(ghsa_id: str) -> Optional[Dict[str, Any]]:
     Returns:
         Dictionary with advisory details or None if not found
     """
+    cfg = get_config()
+    github_api = cfg.get_api_endpoint('github')
 
     try:
-        url = f"{GITHUB_ADVISORY_API}/{ghsa_id}"
+        url = f"{github_api}/{ghsa_id}"
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28"

@@ -15,19 +15,19 @@ import re
 def extract_fixed_version(vuln: Dict[str, Any]) -> Optional[str]:
     """
     Extract the fixed version from vulnerability data.
-    
+
     Args:
         vuln: Vulnerability dictionary with raw_data from OSV/NVD/GitHub
-    
+
     Returns:
         Fixed version string or None if not available
     """
     fixed_version = None
-    
+
     # Try OSV raw_data format
     if "raw_data" in vuln:
         raw = vuln["raw_data"]
-        
+
         # Check OSV affected ranges
         if "affected" in raw:
             for affected in raw["affected"]:
@@ -38,7 +38,7 @@ def extract_fixed_version(vuln: Dict[str, Any]) -> Optional[str]:
                         if "fixed" in event:
                             fixed_version = event["fixed"]
                             return fixed_version
-    
+
     # Try GitHub Advisory format
     if "ghsa_id" in vuln or "source" == "GitHub Advisory":
         raw = vuln.get("raw_data", {})
@@ -50,7 +50,7 @@ def extract_fixed_version(vuln: Dict[str, Any]) -> Optional[str]:
                 match = re.search(r'>=?\s*([0-9.]+)', patched_versions)
                 if match:
                     return match.group(1)
-    
+
     return fixed_version
 
 
@@ -58,38 +58,38 @@ def get_latest_safe_version(package_name: str, current_version: str, ecosystem: 
                             vulnerabilities: List[Dict[str, Any]]) -> Optional[str]:
     """
     Determine the latest safe version to upgrade to.
-    
+
     Strategy:
     - Find the highest fixed version across all vulnerabilities
     - Ensure it's higher than current version
     - Prefer minor version bumps over major (less breaking changes)
-    
+
     Args:
         package_name: Package name
         current_version: Current version
         ecosystem: Ecosystem (npm, PyPI, Maven, etc.)
         vulnerabilities: List of vulnerabilities affecting this package
-    
+
     Returns:
         Recommended version string or None
     """
     fixed_versions = []
-    
+
     for vuln in vulnerabilities:
         fixed = extract_fixed_version(vuln)
         if fixed:
             fixed_versions.append(fixed)
-    
+
     if not fixed_versions:
         return None
-    
+
     # Sort versions (simple lexicographic sort - proper semver would be better)
     # Filter out versions with special characters for now
     clean_versions = [v for v in fixed_versions if re.match(r'^[0-9.]+$', v)]
-    
+
     if not clean_versions:
         return fixed_versions[0]  # Return first available if can't clean
-    
+
     # Sort by version components
     def version_key(v):
         try:
@@ -98,9 +98,9 @@ def get_latest_safe_version(package_name: str, current_version: str, ecosystem: 
             return tuple(parts + [0] * (10 - len(parts)))
         except:
             return (0,)
-    
+
     clean_versions.sort(key=version_key, reverse=True)
-    
+
     # Return highest version
     return clean_versions[0]
 
@@ -108,16 +108,16 @@ def get_latest_safe_version(package_name: str, current_version: str, ecosystem: 
 def analyze_version_change(current_version: str, target_version: str) -> Dict[str, Any]:
     """
     Analyze the impact of version change (major/minor/patch).
-    
+
     Uses semantic versioning (semver) convention:
     - Major: Breaking changes expected
     - Minor: New features, backward compatible
     - Patch: Bug fixes, backward compatible
-    
+
     Args:
         current_version: Current version string
         target_version: Target version string
-    
+
     Returns:
         {
             "change_type": "major" | "minor" | "patch" | "unknown",
@@ -134,21 +134,21 @@ def analyze_version_change(current_version: str, target_version: str) -> Dict[st
         "target_major": 0,
         "warning": ""
     }
-    
+
     try:
         # Parse versions
         current_parts = [int(p) for p in current_version.split('.')]
         target_parts = [int(p) for p in target_version.split('.')]
-        
+
         # Pad to ensure 3 parts [major, minor, patch]
         while len(current_parts) < 3:
             current_parts.append(0)
         while len(target_parts) < 3:
             target_parts.append(0)
-        
+
         result["current_major"] = current_parts[0]
         result["target_major"] = target_parts[0]
-        
+
         # Determine change type
         if target_parts[0] > current_parts[0]:
             result["change_type"] = "major"
@@ -164,22 +164,22 @@ def analyze_version_change(current_version: str, target_version: str) -> Dict[st
             result["warning"] = f"Patch version upgrade ({current_version} → {target_version}) - safe"
         else:
             result["warning"] = "Target version is not higher than current version"
-    
+
     except Exception as e:
         result["warning"] = f"Could not parse version numbers: {str(e)}"
-    
+
     return result
 
 
 def generate_upgrade_command(package_name: str, target_version: str, ecosystem: str) -> str:
     """
     Generate the upgrade command for the package manager.
-    
+
     Args:
         package_name: Package name
         target_version: Target version to upgrade to
         ecosystem: Ecosystem (npm, PyPI, Maven, etc.)
-    
+
     Returns:
         Command string to upgrade the package
     """
@@ -192,7 +192,7 @@ def generate_upgrade_command(package_name: str, target_version: str, ecosystem: 
         "RubyGems": f"gem install {package_name} -v {target_version}",
         "Cargo": f"cargo update {package_name} --precise {target_version}"
     }
-    
+
     return commands.get(ecosystem, f"Upgrade {package_name} to version {target_version}")
 
 
@@ -205,14 +205,14 @@ def generate_remediation_advice(
 ) -> Dict[str, Any]:
     """
     Generate comprehensive remediation advice for a vulnerable package.
-    
+
     Args:
         package_name: Package name
         current_version: Current version
         ecosystem: Ecosystem
         vulnerabilities: List of vulnerabilities
         reachability_info: Reachability analysis results
-    
+
     Returns:
         {
             "recommended_version": str,
@@ -228,7 +228,7 @@ def generate_remediation_advice(
     recommended_version = get_latest_safe_version(
         package_name, current_version, ecosystem, vulnerabilities
     )
-    
+
     if not recommended_version:
         return {
             "recommended_version": None,
@@ -239,18 +239,18 @@ def generate_remediation_advice(
             "is_reachable": reachability_info.get("reachable", True),
             "kev_count": 0
         }
-    
+
     # Analyze version change
     change_analysis = analyze_version_change(current_version, recommended_version)
-    
+
     # Generate upgrade command
     upgrade_command = generate_upgrade_command(package_name, recommended_version, ecosystem)
-    
+
     # Determine priority
     is_reachable = reachability_info.get("reachable", True)
     kev_count = sum(1 for v in vulnerabilities if v.get("is_actively_exploited", False))
     max_cvss = max((v.get("cvss", 0) or 0 for v in vulnerabilities), default=0)
-    
+
     if kev_count > 0:
         priority = "critical"
     elif is_reachable and max_cvss >= 9.0:
@@ -263,28 +263,28 @@ def generate_remediation_advice(
         priority = "low"
     else:
         priority = "medium"
-    
+
     # Generate actionable steps
     steps = []
-    
+
     if kev_count > 0:
         steps.append(f"🚨 **URGENT:** {kev_count} actively exploited vulnerabilities - patch immediately!")
-    
+
     if is_reachable:
         steps.append(f"1. Upgrade {package_name} from {current_version} to {recommended_version}")
         steps.append(f"2. Run: `{upgrade_command}`")
     else:
         steps.append(f"ℹ️ Package is not reachable in production - lower priority")
         steps.append(f"1. Consider upgrading {package_name} from {current_version} to {recommended_version}")
-    
+
     if change_analysis.get("breaking_likely"):
         steps.append(f"3. ⚠️ Test thoroughly - major version upgrades may break compatibility")
         steps.append(f"4. Review CHANGELOG for breaking changes")
     else:
         steps.append(f"3. Run tests to verify compatibility")
-    
+
     steps.append(f"5. Update package.json/requirements.txt/pom.xml with new version")
-    
+
     return {
         "recommended_version": recommended_version,
         "upgrade_command": upgrade_command,
@@ -300,23 +300,23 @@ def generate_remediation_advice(
 def generate_remediation_summary(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Generate remediation advice for all vulnerable components.
-    
+
     Args:
         findings: List of component findings with vulnerabilities and reachability
-    
+
     Returns:
         List of remediation recommendations, sorted by priority
     """
     remediations = []
-    
+
     for finding in findings:
         if not finding.get("vulnerabilities"):
             continue
-        
+
         component = finding["component"]
         vulnerabilities = finding["vulnerabilities"]
         reachability = component.get("reachability", {})
-        
+
         advice = generate_remediation_advice(
             component["name"],
             component["version"],
@@ -324,16 +324,16 @@ def generate_remediation_summary(findings: List[Dict[str, Any]]) -> List[Dict[st
             vulnerabilities,
             reachability
         )
-        
+
         # Add component info
         advice["component"] = component["name"]
         advice["current_version"] = component["version"]
         advice["vulnerability_count"] = len(vulnerabilities)
-        
+
         remediations.append(advice)
-    
+
     # Sort by priority
     priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "unknown": 4}
     remediations.sort(key=lambda r: (priority_order.get(r["priority"], 99), -r.get("max_cvss", 0)))
-    
+
     return remediations

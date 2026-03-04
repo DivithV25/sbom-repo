@@ -1,9 +1,12 @@
 import requests
-
-OSV_API_URL = "https://api.osv.dev/v1/query"
+from agent.config_loader import get_config
 
 
 def query_osv(package_name, version, ecosystem=None):
+    """Query OSV API for vulnerabilities"""
+    cfg = get_config()
+    osv_api_url = cfg.get_api_endpoint('osv')
+
     payload = {
         "package": {
             "name": package_name
@@ -15,7 +18,7 @@ def query_osv(package_name, version, ecosystem=None):
         payload["package"]["ecosystem"] = ecosystem
 
     try:
-        response = requests.post(OSV_API_URL, json=payload, timeout=10)
+        response = requests.post(osv_api_url, json=payload, timeout=10)
         response.raise_for_status()
         data = response.json()
     except Exception as e:
@@ -23,6 +26,9 @@ def query_osv(package_name, version, ecosystem=None):
         return []
 
     vulnerabilities = []
+
+    # Get CVSS numeric values from config
+    cvss_values = cfg.get_cvss_numeric_values()
 
     for vuln in data.get("vulns", []):
         cvss_score = None
@@ -41,22 +47,16 @@ def query_osv(package_name, version, ecosystem=None):
             try:
                 db_spec = vuln["database_specific"]
                 if "severity" in db_spec:
-                    # GitHub Advisory severity mappings
-                    severity_map = {
-                        "CRITICAL": 9.5,
-                        "HIGH": 7.5,
-                        "MODERATE": 5.0,
-                        "MEDIUM": 5.0,
-                        "LOW": 2.5
-                    }
-                    cvss_score = severity_map.get(db_spec["severity"].upper(), None)
+                    # Use severity mappings from config
+                    severity_text = db_spec["severity"].upper()
+                    cvss_score = cvss_values.get(severity_text, None)
             except:
                 pass
 
-        # Mark as UNKNOWN (0.0) if no score available instead of assuming HIGH
+        # Mark as UNKNOWN if no score available instead of assuming HIGH
         # This prevents false positives
         if cvss_score is None:
-            cvss_score = 0.0  # UNKNOWN - will be marked as needing manual review
+            cvss_score = cvss_values.get('UNKNOWN', 0.0)
 
         vulnerabilities.append({
             "id": vuln.get("id"),

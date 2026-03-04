@@ -32,26 +32,26 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
             reach_info = comp.get("reachability", {})
             reach_status = "✅ Reachable" if reach_info.get("reachable", True) else "🚫 Not Reachable"
             reach_reason = reach_info.get("reason", "Unknown")
-            
+
             lines.append(f"\n#### {comp['name']}@{comp['version']} - {reach_status}")
             lines.append(f"*{reach_reason}*\n")
-            
+
             for vuln in finding["vulnerabilities"]:
                 cvss = vuln.get('cvss', 0.0)
                 vuln_id = vuln.get('id', 'UNKNOWN')
-                
+
                 # Check for CISA KEV status
                 kev_status = vuln.get("kev", {})
                 is_kev = kev_status.get("in_kev", False)
-                
+
                 # Build vulnerability line
                 vuln_line = f"- {vuln_id}"
-                
+
                 # Add KEV warning
                 if is_kev:
                     vuln_line += " 🚨 **ACTIVELY EXPLOITED**"
                     kev_count += 1
-                
+
                 # Add CVSS info
                 if cvss == 0.0 or cvss is None:
                     vuln_line += " (CVSS: UNKNOWN - manual review needed)"
@@ -60,7 +60,7 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                     from agent.utils import cvss_to_severity
                     severity = cvss_to_severity(cvss)
                     vuln_line += f" (CVSS: {cvss}, Severity: {severity})"
-                
+
                 # Add source info if from multiple databases
                 sources = vuln.get("sources", [vuln.get("source")])
                 if isinstance(sources, list) and len(sources) > 1:
@@ -69,9 +69,9 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                 elif sources:
                     source = sources[0] if isinstance(sources, list) else sources
                     vuln_line += f" [Source: {source}]"
-                
+
                 lines.append(vuln_line)
-                
+
                 # Add KEV details if available
                 if is_kev:
                     due_date = kev_status.get("due_date", "")
@@ -87,7 +87,7 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
     # Add warnings
     if kev_count > 0:
         lines.append(f"\n🚨 **CRITICAL WARNING:** {kev_count} vulnerabilities are in CISA's Known Exploited Vulnerabilities catalog - immediate remediation required!  ")
-    
+
     if unknown_cvss_count > 0:
         lines.append(f"\n⚠️ **Note:** {unknown_cvss_count} vulnerabilities have no CVSS score and require manual assessment.  ")
 
@@ -95,16 +95,16 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
     if remediations and any(r.get("recommended_version") for r in remediations):
         lines.append("\n---\n")
         lines.append("### 💊 Remediation Recommendations\n")
-        
+
         for remediation in remediations:
             if not remediation.get("recommended_version"):
                 continue
-            
+
             comp = remediation["component"]
             current = remediation["current_version"]
             recommended = remediation["recommended_version"]
             priority = remediation["priority"].upper()
-            
+
             # Priority emoji
             priority_emoji = {
                 "CRITICAL": "🚨",
@@ -112,21 +112,21 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                 "MEDIUM": "ℹ️",
                 "LOW": "✅"
             }.get(priority, "❓")
-            
+
             lines.append(f"\n#### {priority_emoji} {comp}@{current} → {recommended} ({priority} Priority)")
-            
+
             # Add upgrade command
             if remediation.get("upgrade_command"):
                 lines.append(f"\n**Suggested fix:**")
                 lines.append(f"```bash")
                 lines.append(remediation["upgrade_command"])
                 lines.append(f"```\n")
-            
+
             # Add actionable steps
             if remediation.get("actionable_steps"):
                 for step in remediation["actionable_steps"]:
                     lines.append(f"{step}  ")
-            
+
             # Add change analysis warning
             change = remediation.get("change_analysis", {})
             if change.get("warning"):

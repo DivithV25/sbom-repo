@@ -11,9 +11,7 @@ active exploitation in the wild and requiring urgent remediation.
 import requests
 from typing import List, Dict, Any, Set, Optional
 from datetime import datetime
-
-
-CISA_KEV_CATALOG_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+from agent.config_loader import get_config
 
 # Cache the KEV catalog to avoid downloading it multiple times
 _kev_catalog_cache = None
@@ -36,8 +34,11 @@ def load_kev_catalog(force_refresh: bool = False) -> Dict[str, Any]:
     if not force_refresh and _kev_catalog_cache is not None:
         return _kev_catalog_cache
 
+    cfg = get_config()
+    kev_catalog_url = cfg.get_api_endpoint('cisa_kev')
+
     try:
-        response = requests.get(CISA_KEV_CATALOG_URL, timeout=15)
+        response = requests.get(kev_catalog_url, timeout=15)
 
         if response.status_code == 200:
             _kev_catalog_cache = response.json()

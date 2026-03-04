@@ -8,10 +8,7 @@ Rate Limits: 5 requests per 30 seconds (without API key)
 import requests
 import time
 from typing import List, Dict, Any, Optional
-
-
-# NVD API endpoint
-NVD_API_BASE = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+from agent.config_loader import get_config
 
 
 def query_nvd(package_name: str, version: str, ecosystem: str = None) -> List[Dict[str, Any]]:
@@ -30,6 +27,10 @@ def query_nvd(package_name: str, version: str, ecosystem: str = None) -> List[Di
         List of vulnerability dictionaries with standardized format
     """
 
+    cfg = get_config()
+    nvd_api_base = cfg.get_api_endpoint('nvd')
+    rate_limit_config = cfg.get_rate_limit('nvd')
+
     vulnerabilities = []
 
     try:
@@ -42,10 +43,12 @@ def query_nvd(package_name: str, version: str, ecosystem: str = None) -> List[Di
             "resultsPerPage": 20  # Limit to avoid too many results
         }
 
-        # Add rate limiting to respect NVD API limits (5 req/30s)
-        time.sleep(6)  # Wait 6 seconds between requests
+        # Apply rate limiting if configured
+        if rate_limit_config.get('enabled', False):
+            delay = rate_limit_config.get('delay_seconds', 6)
+            time.sleep(delay)
 
-        response = requests.get(NVD_API_BASE, params=params, timeout=10)
+        response = requests.get(nvd_api_base, params=params, timeout=10)
 
         if response.status_code == 200:
             data = response.json()
@@ -136,12 +139,15 @@ def get_cve_details(cve_id: str) -> Optional[Dict[str, Any]]:
         Dictionary with CVE details or None if not found
     """
 
+    cfg = get_config()
+    nvd_api_base = cfg.get_api_endpoint('nvd')
+
     try:
         # Rate limiting
         time.sleep(6)
 
         params = {"cveId": cve_id}
-        response = requests.get(NVD_API_BASE, params=params, timeout=10)
+        response = requests.get(nvd_api_base, params=params, timeout=10)
 
         if response.status_code == 200:
             data = response.json()

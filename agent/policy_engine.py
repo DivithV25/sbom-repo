@@ -1,8 +1,14 @@
 import yaml
 import re
+from agent.config_loader import get_config
 
 
-def load_rules(rules_path):
+def load_rules(rules_path=None):
+    """Load policy rules from YAML file"""
+    if rules_path is None:
+        cfg = get_config()
+        rules_path = cfg.get_python_rules_file()
+
     try:
         with open(rules_path, "r") as f:
             return yaml.safe_load(f)
