@@ -27,6 +27,7 @@ def query_osv(package_name, version, ecosystem=None):
     for vuln in data.get("vulns", []):
         cvss_score = None
 
+        # Try to extract CVSS from severity field
         if "severity" in vuln:
             for sev in vuln["severity"]:
                 try:
@@ -35,14 +36,33 @@ def query_osv(package_name, version, ecosystem=None):
                 except:
                     continue
 
-        # Fallback for demo safety
+        # Try to extract from database_specific field (common in OSV)
+        if cvss_score is None and "database_specific" in vuln:
+            try:
+                db_spec = vuln["database_specific"]
+                if "severity" in db_spec:
+                    # GitHub Advisory severity mappings
+                    severity_map = {
+                        "CRITICAL": 9.5,
+                        "HIGH": 7.5,
+                        "MODERATE": 5.0,
+                        "MEDIUM": 5.0,
+                        "LOW": 2.5
+                    }
+                    cvss_score = severity_map.get(db_spec["severity"].upper(), None)
+            except:
+                pass
+
+        # Mark as UNKNOWN (0.0) if no score available instead of assuming HIGH
+        # This prevents false positives
         if cvss_score is None:
-            cvss_score = 7.5
+            cvss_score = 0.0  # UNKNOWN - will be marked as needing manual review
 
         vulnerabilities.append({
             "id": vuln.get("id"),
             "summary": vuln.get("summary"),
-            "cvss": cvss_score
+            "cvss": cvss_score,
+            "has_cvss": cvss_score > 0.0  # Flag for manual review if needed
         })
 
     return vulnerabilities
