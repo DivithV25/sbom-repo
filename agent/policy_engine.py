@@ -27,23 +27,23 @@ def check_blocked_packages(findings, rules):
 def evaluate_condition(condition: str, context: dict) -> bool:
     """
     Evaluate a simple conditional expression.
-    
+
     Supports:
     - severity == "Critical"
     - reachable == true
     - severity in ["Low", "Medium"]
     - Combined with 'and', 'or'
-    
+
     Args:
         condition: String like 'severity == "Critical" and reachable == true'
         context: Dict with values like {"severity": "CRITICAL", "reachable": True}
-    
+
     Returns:
         bool: True if condition matches
     """
     # Normalize condition
     condition = condition.strip()
-    
+
     # Replace context variables with their values
     # Handle quoted strings
     for key, value in context.items():
@@ -52,7 +52,7 @@ def evaluate_condition(condition: str, context: dict) -> bool:
             context[key] = str(value).lower()
         elif isinstance(value, str):
             context[key] = value
-    
+
     # Simple pattern matching for common conditions
     # severity == "Critical"
     severity_match = re.search(r'severity\s*==\s*["\'](\w+)["\']', condition)
@@ -62,7 +62,7 @@ def evaluate_condition(condition: str, context: dict) -> bool:
         severity_ok = (expected_severity == actual_severity)
     else:
         severity_ok = True  # No severity condition
-    
+
     # reachable == true/false
     reachable_match = re.search(r'reachable\s*==\s*(true|false)', condition, re.IGNORECASE)
     if reachable_match:
@@ -71,7 +71,7 @@ def evaluate_condition(condition: str, context: dict) -> bool:
         reachable_ok = (expected_reachable == actual_reachable)
     else:
         reachable_ok = True  # No reachability condition
-    
+
     # severity in ["Low", "Medium"]
     severity_in_match = re.search(r'severity\s+in\s+\[(.*?)\]', condition)
     if severity_in_match:
@@ -80,7 +80,7 @@ def evaluate_condition(condition: str, context: dict) -> bool:
         severity_in_ok = actual_severity in severity_list
     else:
         severity_in_ok = True
-    
+
     # Combine conditions with 'and'
     if ' and ' in condition.lower():
         return severity_ok and reachable_ok and severity_in_ok
@@ -96,7 +96,7 @@ def evaluate_condition(condition: str, context: dict) -> bool:
 def evaluate_advanced_rules(risk_summary: dict, findings: list, rules: dict) -> tuple:
     """
     Evaluate advanced policy rules with conditional logic.
-    
+
     Rules format:
     rules:
       - type: deny
@@ -105,29 +105,29 @@ def evaluate_advanced_rules(risk_summary: dict, findings: list, rules: dict) -> 
       - type: allow
         when: severity in ["Low", "Medium"]
         msg: "Low/Medium → Allow with warning"
-    
+
     Returns:
         (decision, reason) or (None, None) if no rules match
     """
     if not rules or "rules" not in rules:
         return None, None
-    
+
     rule_list = rules["rules"]
     max_severity = risk_summary.get("overall_severity", "UNKNOWN")
     reachable_vulns = risk_summary.get("reachable_vulnerabilities", 0)
-    
+
     # Build context for condition evaluation
     context = {
         "severity": max_severity,
         "reachable": reachable_vulns > 0,
         "total_vulnerabilities": risk_summary.get("total_vulnerabilities", 0)
     }
-    
+
     for rule in rule_list:
         rule_type = rule.get("type", "").lower()
         when_condition = rule.get("when", "")
         message = rule.get("msg", "Policy rule triggered")
-        
+
         # Evaluate condition
         if evaluate_condition(when_condition, context):
             if rule_type == "deny":
@@ -136,7 +136,7 @@ def evaluate_advanced_rules(risk_summary: dict, findings: list, rules: dict) -> 
                 return "PASS", message
             elif rule_type == "warn":
                 return "WARN", message
-    
+
     return None, None
 
 
@@ -157,7 +157,7 @@ def evaluate_policy(risk_summary, findings, rules=None):
         blocked, pkg = check_blocked_packages(findings, rules)
         if blocked:
             return "FAIL", f"Blocked package detected: {pkg}"
-    
+
     # Rule 2: Try advanced conditional rules (new format)
     if rules:
         decision, reason = evaluate_advanced_rules(risk_summary, findings, rules)
@@ -172,10 +172,10 @@ def evaluate_policy(risk_summary, findings, rules=None):
     if rules and "policy_gates" in rules:
         fail_on = rules["policy_gates"].get("fail_on", ["CRITICAL", "HIGH"])
         warn_on = rules["policy_gates"].get("warn_on", ["MEDIUM"])
-        
+
         # Check if we should only fail on reachable vulnerabilities
         fail_on_reachable_only = rules["policy_gates"].get("fail_on_reachable_only", False)
-        
+
         if fail_on_reachable_only and reachable_vulns == 0:
             return "PASS", "All vulnerabilities are unreachable - safe to proceed"
     else:

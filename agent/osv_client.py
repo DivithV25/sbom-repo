@@ -63,7 +63,8 @@ def query_osv(package_name, version, ecosystem=None):
             "source": "OSV",
             "summary": vuln.get("summary"),
             "cvss": cvss_score,
-            "has_cvss": cvss_score > 0.0  # Flag for manual review if needed
+            "has_cvss": cvss_score > 0.0,  # Flag for manual review if needed
+            "raw_data": vuln  # Include full OSV data for remediation extraction
         })
 
     return vulnerabilities

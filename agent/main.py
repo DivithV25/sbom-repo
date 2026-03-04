@@ -5,6 +5,7 @@ from agent.risk_engine import compute_risk
 from agent.policy_engine import load_rules, evaluate_policy
 from agent.reporter import generate_markdown_report, save_outputs
 from agent.reachability_analyzer import analyze_all_components, enhance_findings_with_reachability
+from agent.remediation_advisor import generate_remediation_summary
 
 
 def main():
@@ -35,7 +36,7 @@ def main():
     reachability_data = analyze_all_components(sbom_json)
 
     findings = []
-    
+
     # Parse sources list
     sources = [s.strip() for s in args.sources.split(",")]
 
@@ -50,37 +51,42 @@ def main():
         else:
             # Multi-feed aggregation
             vulns = aggregate_vulnerabilities(
-                comp["name"], 
-                comp["version"], 
+                comp["name"],
+                comp["version"],
                 comp.get("ecosystem"),
                 sources=sources
             )
-        
+
         findings.append({
             "component": comp,
             "vulnerabilities": vulns
         })
-        
+
         print()  # Blank line between components
 
     # Enhance findings with reachability information
     findings = enhance_findings_with_reachability(findings, reachability_data)
 
     risk_summary = compute_risk(findings)
+    
+    # Generate remediation advice
+    print("\n💊 Generating remediation recommendations...")
+    remediations = generate_remediation_summary(findings)
 
     rules = load_rules(args.rules) if args.rules else None
 
     decision, reason = evaluate_policy(risk_summary, findings, rules)
 
     markdown = generate_markdown_report(
-        risk_summary, findings, decision, reason
+        risk_summary, findings, decision, reason, remediations
     )
 
     report_data = {
         "risk_summary": risk_summary,
         "decision": decision,
         "reason": reason,
-        "findings": findings
+        "findings": findings,
+        "remediations": remediations
     }
 
     save_outputs(args.output, markdown, report_data)

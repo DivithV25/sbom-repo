@@ -2,7 +2,7 @@ import json
 import os
 
 
-def generate_markdown_report(risk_summary, findings, decision, reason):
+def generate_markdown_report(risk_summary, findings, decision, reason, remediations=None):
     lines = []
     lines.append("## 🔐 PRISM Security Agent Report\n")
 
@@ -90,6 +90,47 @@ def generate_markdown_report(risk_summary, findings, decision, reason):
     
     if unknown_cvss_count > 0:
         lines.append(f"\n⚠️ **Note:** {unknown_cvss_count} vulnerabilities have no CVSS score and require manual assessment.  ")
+
+    # Add remediation section if available
+    if remediations and any(r.get("recommended_version") for r in remediations):
+        lines.append("\n---\n")
+        lines.append("### 💊 Remediation Recommendations\n")
+        
+        for remediation in remediations:
+            if not remediation.get("recommended_version"):
+                continue
+            
+            comp = remediation["component"]
+            current = remediation["current_version"]
+            recommended = remediation["recommended_version"]
+            priority = remediation["priority"].upper()
+            
+            # Priority emoji
+            priority_emoji = {
+                "CRITICAL": "🚨",
+                "HIGH": "⚠️",
+                "MEDIUM": "ℹ️",
+                "LOW": "✅"
+            }.get(priority, "❓")
+            
+            lines.append(f"\n#### {priority_emoji} {comp}@{current} → {recommended} ({priority} Priority)")
+            
+            # Add upgrade command
+            if remediation.get("upgrade_command"):
+                lines.append(f"\n**Suggested fix:**")
+                lines.append(f"```bash")
+                lines.append(remediation["upgrade_command"])
+                lines.append(f"```\n")
+            
+            # Add actionable steps
+            if remediation.get("actionable_steps"):
+                for step in remediation["actionable_steps"]:
+                    lines.append(f"{step}  ")
+            
+            # Add change analysis warning
+            change = remediation.get("change_analysis", {})
+            if change.get("warning"):
+                lines.append(f"\n{change['warning']}  ")
 
     lines.append("\n---\n")
     lines.append(f"### 🛡️ Policy Decision\n\n{reason}\n")
