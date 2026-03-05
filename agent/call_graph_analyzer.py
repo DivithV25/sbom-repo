@@ -4,6 +4,16 @@ Level 2 Reachability Analyzer - Call Graph Analysis
 Builds call graphs to determine if specific vulnerable functions are actually invoked.
 This provides function-level precision for vulnerability reachability.
 
+Supported Languages:
+- JavaScript/TypeScript (function calls, method calls)
+- Python (AST-based function call detection)
+- Java (method calls, static methods)
+- Go (function calls, method calls)
+- C# (method calls, static methods)
+- Ruby (method calls with/without parens)
+- Rust (function calls, macro calls)
+- PHP (function calls, method calls, static methods)
+
 Example:
 - Package: lodash
 - Vulnerable Function: _.template() (CVE-2021-23337)
@@ -68,6 +78,18 @@ class CallGraphAnalyzer:
             return self._analyze_javascript_calls(package_name, vulnerable_functions)
         elif language.lower() in ["python", "py"]:
             return self._analyze_python_calls(package_name, vulnerable_functions)
+        elif language.lower() in ["java"]:
+            return self._analyze_java_calls(package_name, vulnerable_functions)
+        elif language.lower() in ["go", "golang"]:
+            return self._analyze_go_calls(package_name, vulnerable_functions)
+        elif language.lower() in ["csharp", "c#", "cs"]:
+            return self._analyze_csharp_calls(package_name, vulnerable_functions)
+        elif language.lower() in ["ruby", "rb"]:
+            return self._analyze_ruby_calls(package_name, vulnerable_functions)
+        elif language.lower() in ["rust", "rs"]:
+            return self._analyze_rust_calls(package_name, vulnerable_functions)
+        elif language.lower() in ["php"]:
+            return self._analyze_php_calls(package_name, vulnerable_functions)
         else:
             return {
                 "package": package_name,
@@ -342,6 +364,394 @@ class CallGraphAnalyzer:
             context_lines.append(f"{marker} {lines[i]}")
 
         return "\n".join(context_lines)
+
+    def _analyze_java_calls(
+        self,
+        package_name: str,
+        vulnerable_functions: List[str]
+    ) -> Dict[str, Any]:
+        """Analyze Java method calls"""
+        call_locations = []
+        java_files = list(self.project_root.glob("**/*.java"))
+
+        for file_path in java_files:
+            try:
+                if self._should_skip_file(file_path):
+                    continue
+
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+
+                    # Check if package is imported
+                    package_imported = any(
+                        'import' in line and package_name.replace('-', '.') in line
+                        for line in lines
+                    )
+
+                    if not package_imported:
+                        continue
+
+                    # Look for method calls
+                    for line_num, line in enumerate(lines, 1):
+                        for func in vulnerable_functions:
+                            # Match: object.method(), Class.method(), method()
+                            patterns = [
+                                rf'\b{func}\s*\(',  # Direct call
+                                rf'\.\s*{func}\s*\(',  # Method call
+                            ]
+
+                            for pattern in patterns:
+                                if re.search(pattern, line):
+                                    confidence = 1.0 if '.' in pattern else 0.8
+
+                                    call_locations.append({
+                                        "file": str(file_path.relative_to(self.project_root)),
+                                        "line": line_num,
+                                        "function": func,
+                                        "context": self._extract_context(lines, line_num),
+                                        "confidence": confidence,
+                                        "code_snippet": line.strip()
+                                    })
+
+            except Exception:
+                continue
+
+        max_confidence = max([loc['confidence'] for loc in call_locations], default=0.0)
+        is_called = max_confidence > 0.3
+
+        return {
+            "package": package_name,
+            "vulnerable_functions": vulnerable_functions,
+            "call_locations": call_locations,
+            "is_vulnerable_function_called": is_called,
+            "max_confidence": max_confidence,
+            "summary": self._generate_call_summary(package_name, vulnerable_functions, call_locations, max_confidence)
+        }
+
+    def _analyze_go_calls(
+        self,
+        package_name: str,
+        vulnerable_functions: List[str]
+    ) -> Dict[str, Any]:
+        """Analyze Go function calls"""
+        call_locations = []
+        go_files = list(self.project_root.glob("**/*.go"))
+
+        for file_path in go_files:
+            try:
+                if self._should_skip_file(file_path):
+                    continue
+
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+
+                    # Check if package is imported
+                    package_imported = any(
+                        'import' in line and package_name in line
+                        for line in lines
+                    )
+
+                    if not package_imported:
+                        continue
+
+                    # Look for function calls
+                    for line_num, line in enumerate(lines, 1):
+                        for func in vulnerable_functions:
+                            # Go: package.Function(), alias.Function()
+                            patterns = [
+                                rf'\b{package_name}\.{func}\s*\(',
+                                rf'\w+\.{func}\s*\(',  # Aliased import
+                                rf'\b{func}\s*\('  # Direct (if dot-imported)
+                            ]
+
+                            for idx, pattern in enumerate(patterns):
+                                if re.search(pattern, line):
+                                    confidence = 1.0 if idx == 0 else 0.7
+
+                                    call_locations.append({
+                                        "file": str(file_path.relative_to(self.project_root)),
+                                        "line": line_num,
+                                        "function": func,
+                                        "context": self._extract_context(lines, line_num),
+                                        "confidence": confidence,
+                                        "code_snippet": line.strip()
+                                    })
+
+            except Exception:
+                continue
+
+        max_confidence = max([loc['confidence'] for loc in call_locations], default=0.0)
+        is_called = max_confidence > 0.3
+
+        return {
+            "package": package_name,
+            "vulnerable_functions": vulnerable_functions,
+            "call_locations": call_locations,
+            "is_vulnerable_function_called": is_called,
+            "max_confidence": max_confidence,
+            "summary": self._generate_call_summary(package_name, vulnerable_functions, call_locations, max_confidence)
+        }
+
+    def _analyze_csharp_calls(
+        self,
+        package_name: str,
+        vulnerable_functions: List[str]
+    ) -> Dict[str, Any]:
+        """Analyze C# method calls"""
+        call_locations = []
+        cs_files = list(self.project_root.glob("**/*.cs"))
+
+        for file_path in cs_files:
+            try:
+                if self._should_skip_file(file_path):
+                    continue
+
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+
+                    # Check if namespace is used
+                    namespace_used = any(
+                        'using' in line and package_name.replace('-', '.') in line
+                        for line in lines
+                    )
+
+                    if not namespace_used:
+                        continue
+
+                    # Look for method calls
+                    for line_num, line in enumerate(lines, 1):
+                        for func in vulnerable_functions:
+                            # C#: Object.Method(), Class.Method(), Method()
+                            patterns = [
+                                rf'\b{func}\s*\(',
+                                rf'\.\s*{func}\s*\(',
+                            ]
+
+                            for pattern in patterns:
+                                if re.search(pattern, line):
+                                    confidence = 1.0 if '.' in line else 0.7
+
+                                    call_locations.append({
+                                        "file": str(file_path.relative_to(self.project_root)),
+                                        "line": line_num,
+                                        "function": func,
+                                        "context": self._extract_context(lines, line_num),
+                                        "confidence": confidence,
+                                        "code_snippet": line.strip()
+                                    })
+
+            except Exception:
+                continue
+
+        max_confidence = max([loc['confidence'] for loc in call_locations], default=0.0)
+        is_called = max_confidence > 0.3
+
+        return {
+            "package": package_name,
+            "vulnerable_functions": vulnerable_functions,
+            "call_locations": call_locations,
+            "is_vulnerable_function_called": is_called,
+            "max_confidence": max_confidence,
+            "summary": self._generate_call_summary(package_name, vulnerable_functions, call_locations, max_confidence)
+        }
+
+    def _analyze_ruby_calls(
+        self,
+        package_name: str,
+        vulnerable_functions: List[str]
+    ) -> Dict[str, Any]:
+        """Analyze Ruby method calls"""
+        call_locations = []
+        rb_files = list(self.project_root.glob("**/*.rb"))
+
+        for file_path in rb_files:
+            try:
+                if self._should_skip_file(file_path):
+                    continue
+
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+
+                    # Check if gem is required
+                    gem_required = any(
+                        ('require' in line or 'gem' in line) and package_name in line
+                        for line in lines
+                    )
+
+                    if not gem_required:
+                        continue
+
+                    # Look for method calls
+                    for line_num, line in enumerate(lines, 1):
+                        for func in vulnerable_functions:
+                            # Ruby: object.method, Module.method, method()
+                            patterns = [
+                                rf'\b{func}\s*\(',  # Method call with parens
+                                rf'\b{func}\s+',    # Method call without parens
+                                rf'\.\s*{func}\b',  # Chained method
+                            ]
+
+                            for pattern in patterns:
+                                if re.search(pattern, line):
+                                    call_locations.append({
+                                        "file": str(file_path.relative_to(self.project_root)),
+                                        "line": line_num,
+                                        "function": func,
+                                        "context": self._extract_context(lines, line_num),
+                                        "confidence": 0.9,
+                                        "code_snippet": line.strip()
+                                    })
+
+            except Exception:
+                continue
+
+        max_confidence = max([loc['confidence'] for loc in call_locations], default=0.0)
+        is_called = max_confidence > 0.3
+
+        return {
+            "package": package_name,
+            "vulnerable_functions": vulnerable_functions,
+            "call_locations": call_locations,
+            "is_vulnerable_function_called": is_called,
+            "max_confidence": max_confidence,
+            "summary": self._generate_call_summary(package_name, vulnerable_functions, call_locations, max_confidence)
+        }
+
+    def _analyze_rust_calls(
+        self,
+        package_name: str,
+        vulnerable_functions: List[str]
+    ) -> Dict[str, Any]:
+        """Analyze Rust function calls"""
+        call_locations = []
+        rs_files = list(self.project_root.glob("**/*.rs"))
+
+        rust_crate_name = package_name.replace('-', '_')
+
+        for file_path in rs_files:
+            try:
+                if self._should_skip_file(file_path):
+                    continue
+
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+
+                    # Check if crate is used
+                    crate_used = any(
+                        'use' in line and rust_crate_name in line
+                        for line in lines
+                    )
+
+                    if not crate_used:
+                        continue
+
+                    # Look for function calls
+                    for line_num, line in enumerate(lines, 1):
+                        for func in vulnerable_functions:
+                            # Rust: crate::function(), module::function(), function!()
+                            patterns = [
+                                rf'{rust_crate_name}::{func}\s*\(',
+                                rf'\b{func}\s*\(',
+                                rf'{func}!',  # Macro call
+                            ]
+
+                            for pattern in patterns:
+                                if re.search(pattern, line):
+                                    confidence = 1.0 if rust_crate_name in pattern else 0.7
+
+                                    call_locations.append({
+                                        "file": str(file_path.relative_to(self.project_root)),
+                                        "line": line_num,
+                                        "function": func,
+                                        "context": self._extract_context(lines, line_num),
+                                        "confidence": confidence,
+                                        "code_snippet": line.strip()
+                                    })
+
+            except Exception:
+                continue
+
+        max_confidence = max([loc['confidence'] for loc in call_locations], default=0.0)
+        is_called = max_confidence > 0.3
+
+        return {
+            "package": package_name,
+            "vulnerable_functions": vulnerable_functions,
+            "call_locations": call_locations,
+            "is_vulnerable_function_called": is_called,
+            "max_confidence": max_confidence,
+            "summary": self._generate_call_summary(package_name, vulnerable_functions, call_locations, max_confidence)
+        }
+
+    def _analyze_php_calls(
+        self,
+        package_name: str,
+        vulnerable_functions: List[str]
+    ) -> Dict[str, Any]:
+        """Analyze PHP function/method calls"""
+        call_locations = []
+        php_files = list(self.project_root.glob("**/*.php"))
+
+        for file_path in php_files:
+            try:
+                if self._should_skip_file(file_path):
+                    continue
+
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+
+                    # Check if package is used
+                    package_used = any(
+                        ('use' in line or 'require' in line) and package_name in line
+                        for line in lines
+                    )
+
+                    if not package_used:
+                        continue
+
+                    # Look for function/method calls
+                    for line_num, line in enumerate(lines, 1):
+                        for func in vulnerable_functions:
+                            # PHP: $object->method(), Class::method(), function()
+                            patterns = [
+                                rf'->\s*{func}\s*\(',  # Instance method
+                                rf'::\s*{func}\s*\(',  # Static method
+                                rf'\b{func}\s*\(',     # Function call
+                            ]
+
+                            for pattern in patterns:
+                                if re.search(pattern, line):
+                                    confidence = 1.0 if '->' in pattern or '::' in pattern else 0.7
+
+                                    call_locations.append({
+                                        "file": str(file_path.relative_to(self.project_root)),
+                                        "line": line_num,
+                                        "function": func,
+                                        "context": self._extract_context(lines, line_num),
+                                        "confidence": confidence,
+                                        "code_snippet": line.strip()
+                                    })
+
+            except Exception:
+                continue
+
+        max_confidence = max([loc['confidence'] for loc in call_locations], default=0.0)
+        is_called = max_confidence > 0.3
+
+        return {
+            "package": package_name,
+            "vulnerable_functions": vulnerable_functions,
+            "call_locations": call_locations,
+            "is_vulnerable_function_called": is_called,
+            "max_confidence": max_confidence,
+            "summary": self._generate_call_summary(package_name, vulnerable_functions, call_locations, max_confidence)
+        }
 
     def _generate_call_summary(
         self,

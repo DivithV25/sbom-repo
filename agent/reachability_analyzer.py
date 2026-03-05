@@ -289,7 +289,7 @@ def detect_language_from_component(component: Dict[str, Any], sbom_data: Dict[st
         return "javascript"
     elif "pkg:pypi" in purl:
         return "python"
-    elif "pkg:maven" in purl:
+    elif "pkg:maven" in purl or "pkg:gradle" in purl:
         return "java"
     elif "pkg:golang" in purl or "pkg:go" in purl:
         return "go"
@@ -297,6 +297,10 @@ def detect_language_from_component(component: Dict[str, Any], sbom_data: Dict[st
         return "rust"
     elif "pkg:nuget" in purl:
         return "csharp"
+    elif "pkg:gem" in purl or "pkg:rubygems" in purl:
+        return "ruby"
+    elif "pkg:composer" in purl:
+        return "php"
 
     # Check SBOM metadata for project language
     metadata = sbom_data.get("metadata", {})

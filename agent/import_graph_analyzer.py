@@ -5,8 +5,14 @@ Analyzes actual code to determine if vulnerable packages are imported and used.
 Goes beyond scope-based analysis to provide function-level precision.
 
 Supported Languages:
-- JavaScript/TypeScript
-- Python
+- JavaScript/TypeScript (ES6, CommonJS, AMD)
+- Python (import, from...import)
+- Java (import statements, Maven/Gradle packages)
+- Go (import statements)
+- C# (using statements, NuGet packages)
+- Ruby (require, gem)
+- Rust (use, extern crate)
+- PHP (use, require, include)
 
 Analysis Levels:
 1. Import Detection: Is the package imported anywhere?
@@ -61,6 +67,18 @@ class ImportGraphAnalyzer:
             return self._analyze_javascript_imports(package_name)
         elif language.lower() in ["python", "py"]:
             return self._analyze_python_imports(package_name)
+        elif language.lower() in ["java"]:
+            return self._analyze_java_imports(package_name)
+        elif language.lower() in ["go", "golang"]:
+            return self._analyze_go_imports(package_name)
+        elif language.lower() in ["csharp", "c#", "cs"]:
+            return self._analyze_csharp_imports(package_name)
+        elif language.lower() in ["ruby", "rb"]:
+            return self._analyze_ruby_imports(package_name)
+        elif language.lower() in ["rust", "rs"]:
+            return self._analyze_rust_imports(package_name)
+        elif language.lower() in ["php"]:
+            return self._analyze_php_imports(package_name)
         else:
             return {
                 "is_imported": None,
@@ -199,6 +217,353 @@ class ImportGraphAnalyzer:
                             })
 
             except Exception as e:
+                continue
+
+        return {
+            "is_imported": len(import_locations) > 0,
+            "import_locations": import_locations,
+            "usage_count": len(import_locations),
+            "imported_functions": list(imported_functions),
+            "confidence": 1.0 if import_locations else 0.0
+        }
+
+    def _analyze_java_imports(self, package_name: str) -> Dict[str, Any]:
+        """Analyze Java imports"""
+        import_locations = []
+        imported_functions = set()
+
+        # Find all Java files
+        java_files = list(self.project_root.glob("**/*.java"))
+
+        # Convert package name to Java format (e.g., "jackson-databind" -> "com.fasterxml.jackson")
+        # This is a simplified mapping - real implementation would use Maven/Gradle metadata
+        java_package_patterns = [
+            package_name.replace('-', '.'),  # Convert hyphens to dots
+            f"org.{package_name.replace('-', '.')}",
+            f"com.{package_name.replace('-', '.')}",
+            package_name  # Try original format too
+        ]
+
+        for file_path in java_files:
+            try:
+                if self._should_skip_file(file_path):
+                    continue
+
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+
+                    for line_num, line in enumerate(lines, 1):
+                        # Match Java import statements
+                        for pkg_pattern in java_package_patterns:
+                            # import package.*;
+                            # import package.ClassName;
+                            # import static package.ClassName.methodName;
+                            patterns = [
+                                rf'import\s+({pkg_pattern}[.\w*]+)\s*;',
+                                rf'import\s+static\s+({pkg_pattern}[.\w*]+)\s*;'
+                            ]
+
+                            for pattern in patterns:
+                                match = re.search(pattern, line)
+                                if match:
+                                    import_type = "static_import" if "static" in line else "import"
+                                    imported_class = match.group(1).split('.')[-1]
+
+                                    if imported_class != '*':
+                                        imported_functions.add(imported_class)
+
+                                    import_locations.append({
+                                        "file": str(file_path.relative_to(self.project_root)),
+                                        "line": line_num,
+                                        "type": import_type,
+                                        "statement": line.strip()
+                                    })
+
+            except Exception:
+                continue
+
+        return {
+            "is_imported": len(import_locations) > 0,
+            "import_locations": import_locations,
+            "usage_count": len(import_locations),
+            "imported_functions": list(imported_functions),
+            "confidence": 1.0 if import_locations else 0.0
+        }
+
+    def _analyze_go_imports(self, package_name: str) -> Dict[str, Any]:
+        """Analyze Go imports"""
+        import_locations = []
+        imported_functions = set()
+
+        # Find all Go files
+        go_files = list(self.project_root.glob("**/*.go"))
+
+        # Go package paths (e.g., "github.com/user/package")
+        for file_path in go_files:
+            try:
+                if self._should_skip_file(file_path):
+                    continue
+
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+
+                    for line_num, line in enumerate(lines, 1):
+                        # Match Go import statements
+                        # import "package"
+                        # import ( "package1" "package2" )
+                        # import alias "package"
+                        patterns = [
+                            rf'import\s+"([^"]*{package_name}[^"]*)"',
+                            rf'import\s+\w+\s+"([^"]*{package_name}[^"]*)"',  # Aliased import
+                            rf'"([^"]*{package_name}[^"]*)"'  # In import block
+                        ]
+
+                        for pattern in patterns:
+                            match = re.search(pattern, line)
+                            if match:
+                                import_locations.append({
+                                    "file": str(file_path.relative_to(self.project_root)),
+                                    "line": line_num,
+                                    "type": "import",
+                                    "statement": line.strip()
+                                })
+
+            except Exception:
+                continue
+
+        return {
+            "is_imported": len(import_locations) > 0,
+            "import_locations": import_locations,
+            "usage_count": len(import_locations),
+            "imported_functions": list(imported_functions),
+            "confidence": 1.0 if import_locations else 0.0
+        }
+
+    def _analyze_csharp_imports(self, package_name: str) -> Dict[str, Any]:
+        """Analyze C# using statements"""
+        import_locations = []
+        imported_functions = set()
+
+        # Find all C# files
+        cs_files = list(self.project_root.glob("**/*.cs"))
+
+        # Convert package name to C# namespace format
+        csharp_namespace_patterns = [
+            package_name.replace('-', '.'),
+            package_name.replace('_', '.'),
+            f"System.{package_name}",
+            package_name
+        ]
+
+        for file_path in cs_files:
+            try:
+                if self._should_skip_file(file_path):
+                    continue
+
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+
+                    for line_num, line in enumerate(lines, 1):
+                        for ns_pattern in csharp_namespace_patterns:
+                            # using Namespace;
+                            # using Namespace.Class;
+                            # using Alias = Namespace;
+                            patterns = [
+                                rf'using\s+({ns_pattern}[.\w]*)\s*;',
+                                rf'using\s+\w+\s*=\s*({ns_pattern}[.\w]*)\s*;'
+                            ]
+
+                            for pattern in patterns:
+                                match = re.search(pattern, line)
+                                if match:
+                                    import_locations.append({
+                                        "file": str(file_path.relative_to(self.project_root)),
+                                        "line": line_num,
+                                        "type": "using",
+                                        "statement": line.strip()
+                                    })
+
+            except Exception:
+                continue
+
+        return {
+            "is_imported": len(import_locations) > 0,
+            "import_locations": import_locations,
+            "usage_count": len(import_locations),
+            "imported_functions": list(imported_functions),
+            "confidence": 1.0 if import_locations else 0.0
+        }
+
+    def _analyze_ruby_imports(self, package_name: str) -> Dict[str, Any]:
+        """Analyze Ruby require statements"""
+        import_locations = []
+        imported_functions = set()
+
+        # Find all Ruby files
+        rb_files = list(self.project_root.glob("**/*.rb"))
+
+        for file_path in rb_files:
+            try:
+                if self._should_skip_file(file_path):
+                    continue
+
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+
+                    for line_num, line in enumerate(lines, 1):
+                        # require 'package'
+                        # require "package"
+                        # require_relative 'package'
+                        # gem 'package'
+                        patterns = [
+                            rf'require\s+[\'"]({package_name})[\'"]',
+                            rf'require\s+[\'"]({package_name}/[^\'"]*)[\'"',
+                            rf'require_relative\s+[\'"]({package_name})[\'"]',
+                            rf'gem\s+[\'"]({package_name})[\'"]'
+                        ]
+
+                        for pattern in patterns:
+                            match = re.search(pattern, line)
+                            if match:
+                                import_type = "gem" if "gem" in line else "require"
+                                import_locations.append({
+                                    "file": str(file_path.relative_to(self.project_root)),
+                                    "line": line_num,
+                                    "type": import_type,
+                                    "statement": line.strip()
+                                })
+
+            except Exception:
+                continue
+
+        return {
+            "is_imported": len(import_locations) > 0,
+            "import_locations": import_locations,
+            "usage_count": len(import_locations),
+            "imported_functions": list(imported_functions),
+            "confidence": 1.0 if import_locations else 0.0
+        }
+
+    def _analyze_rust_imports(self, package_name: str) -> Dict[str, Any]:
+        """Analyze Rust use statements"""
+        import_locations = []
+        imported_functions = set()
+
+        # Find all Rust files
+        rs_files = list(self.project_root.glob("**/*.rs"))
+
+        # Convert package name (e.g., "serde_json" or "serde-json")
+        rust_crate_name = package_name.replace('-', '_')
+
+        for file_path in rs_files:
+            try:
+                if self._should_skip_file(file_path):
+                    continue
+
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+
+                    for line_num, line in enumerate(lines, 1):
+                        # use crate::module;
+                        # use crate::{Type1, Type2};
+                        # extern crate crate_name;
+                        patterns = [
+                            rf'use\s+({rust_crate_name}[:\w]*)',
+                            rf'use\s+({rust_crate_name})::\{{([^}}]+)\}}',
+                            rf'extern\s+crate\s+({rust_crate_name})'
+                        ]
+
+                        for pattern in patterns:
+                            match = re.search(pattern, line)
+                            if match:
+                                import_type = "extern_crate" if "extern" in line else "use"
+
+                                # Extract imported items from use statements
+                                brace_match = re.search(r'\{([^}]+)\}', line)
+                                if brace_match:
+                                    items = brace_match.group(1).split(',')
+                                    for item in items:
+                                        imported_functions.add(item.strip())
+
+                                import_locations.append({
+                                    "file": str(file_path.relative_to(self.project_root)),
+                                    "line": line_num,
+                                    "type": import_type,
+                                    "statement": line.strip()
+                                })
+
+            except Exception:
+                continue
+
+        return {
+            "is_imported": len(import_locations) > 0,
+            "import_locations": import_locations,
+            "usage_count": len(import_locations),
+            "imported_functions": list(imported_functions),
+            "confidence": 1.0 if import_locations else 0.0
+        }
+
+    def _analyze_php_imports(self, package_name: str) -> Dict[str, Any]:
+        """Analyze PHP require/use statements"""
+        import_locations = []
+        imported_functions = set()
+
+        # Find all PHP files
+        php_files = list(self.project_root.glob("**/*.php"))
+
+        # Convert package name to PHP namespace format
+        php_namespace_patterns = [
+            package_name.replace('-', '\\'),
+            package_name.replace('/', '\\'),
+            package_name
+        ]
+
+        for file_path in php_files:
+            try:
+                if self._should_skip_file(file_path):
+                    continue
+
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    lines = content.split('\n')
+
+                    for line_num, line in enumerate(lines, 1):
+                        for ns_pattern in php_namespace_patterns:
+                            # use Namespace\Class;
+                            # use Namespace\Class as Alias;
+                            # require 'vendor/package/file.php';
+                            # require_once 'vendor/package/file.php';
+                            patterns = [
+                                rf'use\s+([^;]*{ns_pattern}[^;]*)\s*;',
+                                rf'require\s+[\'"]([^\'\"]*{package_name}[^\'\"]*)[\'\"]',
+                                rf'require_once\s+[\'"]([^\'\"]*{package_name}[^\'\"]*)[\'\"]',
+                                rf'include\s+[\'"]([^\'\"]*{package_name}[^\'\"]*)[\'\"]'
+                            ]
+
+                            for pattern in patterns:
+                                match = re.search(pattern, line)
+                                if match:
+                                    import_type = "use" if "use" in line else "require"
+
+                                    # Extract class name from use statements
+                                    if import_type == "use":
+                                        class_match = re.search(r'\\(\w+)', match.group(1))
+                                        if class_match:
+                                            imported_functions.add(class_match.group(1))
+
+                                    import_locations.append({
+                                        "file": str(file_path.relative_to(self.project_root)),
+                                        "line": line_num,
+                                        "type": import_type,
+                                        "statement": line.strip()
+                                    })
+
+            except Exception:
                 continue
 
         return {

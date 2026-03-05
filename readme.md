@@ -101,7 +101,7 @@ PRISM's core capabilities that set it apart from traditional scanners:
 - **Call Graph Analysis** - Detects if vulnerable FUNCTIONS are called
 - **Confidence Scoring** - 0.0 (not imported) to 1.0 (direct call)
 
-**Languages:** JavaScript, TypeScript, Python
+**Languages:** JavaScript, TypeScript, Python, Java, Go, C#, Ruby, Rust, PHP
 
 **Example:**
 ```bash
