@@ -167,8 +167,15 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                         # Migration guide (if provided)
                         if plan.get("migration_guide"):
                             lines.append(f"\n**Migration Guide:**\n{plan['migration_guide']}\n")
+                    else:
+                        # Plain text plan
+                        lines.append(f"{plan}\n")
+                
+                # Risk Explanation (AI-specific)
+                if advice.get("risk_explanation"):
+                    risk_exp = advice['risk_explanation']
                     lines.append(f"\n**Why This Matters:**\n")
-
+                    
                     if isinstance(risk_exp, dict):
                         # Format structured risk explanation
                         if risk_exp.get("potential_attacks"):
