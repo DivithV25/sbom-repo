@@ -59,6 +59,7 @@ def parse_purl(purl):
 
 def extract_components(sbom_json):
     components = []
+    seen = set()
 
     for comp in sbom_json.get("components", []):
         name = comp.get("name")
@@ -72,6 +73,11 @@ def extract_components(sbom_json):
             ecosystem, normalized_name = parse_purl(purl)
 
         if normalized_name and version:
+            dedupe_key = (normalized_name, version, ecosystem)
+            if dedupe_key in seen:
+                continue
+
+            seen.add(dedupe_key)
             components.append({
                 "name": normalized_name,
                 "version": version,

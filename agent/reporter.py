@@ -2,6 +2,39 @@ import json
 import os
 
 
+def _build_quick_fix_command(component_name, component_ecosystem, plan):
+    """Derive a one-line upgrade command when AI output is missing it."""
+    if not isinstance(plan, dict):
+        return None
+
+    # Prefer explicit command from the advisor.
+    if plan.get("upgrade_command"):
+        return plan["upgrade_command"]
+
+    target_version = plan.get("recommended_version")
+    if not target_version:
+        return None
+
+    ecosystem = (component_ecosystem or "").lower()
+
+    if ecosystem == "npm":
+        return f"npm install {component_name}@{target_version}"
+    if ecosystem in ("pypi", "pypi (pip)"):
+        return f"pip install {component_name}=={target_version}"
+    if ecosystem == "maven":
+        return f"Update pom.xml dependency version to {target_version}"
+    if ecosystem == "go":
+        return f"go get {component_name}@v{target_version}"
+    if ecosystem == "nuget":
+        return f"dotnet add package {component_name} --version {target_version}"
+    if ecosystem in ("rubygems", "ruby"):
+        return f"gem install {component_name} -v {target_version}"
+    if ecosystem == "cargo":
+        return f"cargo update {component_name} --precise {target_version}"
+
+    return f"Upgrade {component_name} to {target_version}"
+
+
 def generate_markdown_report(risk_summary, findings, decision, reason, remediations=None):
     lines = []
     lines.append("# PRISM Security Scan Results\n")
@@ -74,6 +107,7 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                 component = remediation["component"]
                 comp_name = component.get("name", "unknown")
                 comp_version = component.get("version", "unknown")
+                comp_ecosystem = component.get("ecosystem")
 
                 is_ai = advice.get("ai_generated", False)
 
@@ -100,6 +134,13 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                 if advice.get("remediation_plan"):
                     plan = advice["remediation_plan"]
                     lines.append(f"\n**Remediation Plan:**\n")
+
+                    quick_fix_command = _build_quick_fix_command(comp_name, comp_ecosystem, plan)
+                    if quick_fix_command:
+                        lines.append(f"\n**Suggested fix:**")
+                        lines.append("```bash")
+                        lines.append(quick_fix_command)
+                        lines.append("```\n")
 
                     # Check if it's a dict with detailed structure or just text
                     if isinstance(plan, dict):
