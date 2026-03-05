@@ -149,9 +149,10 @@ def evaluate_advanced_rules(risk_summary: dict, findings: list, rules: dict) -> 
 def evaluate_policy(risk_summary, findings, rules=None):
     """
     Evaluate security policy based on findings and configured rules.
+    Simplified for Objectives 1 & 2 (no reachability analysis)
 
     Args:
-        risk_summary: Risk summary with max_cvss, overall_severity, reachability data
+        risk_summary: Risk summary with max_cvss, overall_severity
         findings: List of component findings with vulnerabilities
         rules: Optional rules dict from YAML file
 
@@ -172,28 +173,19 @@ def evaluate_policy(risk_summary, findings, rules=None):
 
     # Rule 3: severity gate check (simple format - backward compatible)
     severity = risk_summary["overall_severity"]
-    reachable_vulns = risk_summary.get("reachable_vulnerabilities", 0)
+    total_vulns = risk_summary.get("total_vulnerabilities", 0)
 
     # Get policy gates from rules or use defaults
     if rules and "policy_gates" in rules:
         fail_on = rules["policy_gates"].get("fail_on", ["CRITICAL", "HIGH"])
         warn_on = rules["policy_gates"].get("warn_on", ["MEDIUM"])
-
-        # Check if we should only fail on reachable vulnerabilities
-        fail_on_reachable_only = rules["policy_gates"].get("fail_on_reachable_only", False)
-
-        if fail_on_reachable_only and reachable_vulns == 0:
-            return "PASS", "All vulnerabilities are unreachable - safe to proceed"
     else:
         # Default behavior: FAIL on CRITICAL/HIGH, WARN on MEDIUM
         fail_on = ["CRITICAL", "HIGH"]
         warn_on = ["MEDIUM"]
 
     if severity in fail_on:
-        if reachable_vulns > 0:
-            return "FAIL", f"Severity threshold exceeded: {severity} vulnerabilities found ({reachable_vulns} reachable)"
-        else:
-            return "WARN", f"{severity} vulnerabilities found but all are unreachable - review recommended"
+        return "FAIL", f"Severity threshold exceeded: {severity} vulnerabilities found ({total_vulns} total)"
 
     if severity in warn_on:
         return "WARN", f"Warning: {severity} severity vulnerabilities found - review recommended"

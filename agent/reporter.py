@@ -5,6 +5,7 @@ import os
 def generate_markdown_report(risk_summary, findings, decision, reason, remediations=None):
     lines = []
     lines.append("# PRISM Security Scan Results\n")
+    lines.append("*Objectives 1 & 2: SBOM Generation, OSV Scanning, AI Remediation, Policy Gates*\n")
 
     # Decision indicator
     decision_symbol = {
@@ -16,41 +17,28 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
     lines.append(f"**Decision:** {decision_symbol} **{decision}**  ")
     lines.append(f"**Overall Severity:** {risk_summary['overall_severity']}  ")
     lines.append(f"**Risk Score:** {risk_summary.get('risk_score', 'N/A')} / 10  ")
-    lines.append(f"**Max CVSS:** {risk_summary['max_cvss']} (Reachable: {risk_summary.get('max_reachable_cvss', 'N/A')})  ")
-    lines.append(f"**Total Vulnerabilities:** {risk_summary['total_vulnerabilities']} ({risk_summary.get('reachable_vulnerabilities', 0)} reachable, {risk_summary.get('unreachable_vulnerabilities', 0)} unreachable)  \n")
+    lines.append(f"**Max CVSS:** {risk_summary['max_cvss']}  ")
+    lines.append(f"**Total Vulnerabilities:** {risk_summary['total_vulnerabilities']}  \n")
 
     lines.append("---\n")
     lines.append("## Vulnerable Components\n")
 
-    # Track vulnerabilities without CVSS scores and KEV status
+    # Track vulnerabilities without CVSS scores
     unknown_cvss_count = 0
-    kev_count = 0
 
     for finding in findings:
         if finding["vulnerabilities"]:
             comp = finding["component"]
-            reach_info = comp.get("reachability", {})
-            reach_status = "[Reachable]" if reach_info.get("reachable", True) else "[Not Reachable]"
-            reach_reason = reach_info.get("reason", "Unknown")
 
-            lines.append(f"\n### {comp['name']}@{comp['version']} - {reach_status}")
-            lines.append(f"*{reach_reason}*\n")
+            lines.append(f"\n### {comp['name']}@{comp['version']}")
+            lines.append("")  # Blank line
 
             for vuln in finding["vulnerabilities"]:
                 cvss = vuln.get('cvss', 0.0)
                 vuln_id = vuln.get('id', 'UNKNOWN')
 
-                # Check for CISA KEV status
-                kev_status = vuln.get("kev", {})
-                is_kev = kev_status.get("in_kev", False)
-
                 # Build vulnerability line
                 vuln_line = f"- {vuln_id}"
-
-                # Add KEV warning
-                if is_kev:
-                    vuln_line += " **[ACTIVELY EXPLOITED]**"
-                    kev_count += 1
 
                 # Add CVSS info
                 if cvss == 0.0 or cvss is None:
@@ -61,33 +49,16 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                     severity = cvss_to_severity(cvss)
                     vuln_line += f" (CVSS: {cvss}, Severity: {severity})"
 
-                # Add source info if from multiple databases
-                sources = vuln.get("sources", [vuln.get("source")])
-                if isinstance(sources, list) and len(sources) > 1:
-                    source_str = ", ".join(sources)
-                    vuln_line += f" [Sources: {source_str}]"
-                elif sources:
-                    source = sources[0] if isinstance(sources, list) else sources
-                    vuln_line += f" [Source: {source}]"
+                # Add source info
+                source = vuln.get("source", "OSV")
+                vuln_line += f" [Source: {source}]"
 
                 lines.append(vuln_line)
-
-                # Add KEV details if available
-                if is_kev:
-                    due_date = kev_status.get("due_date", "")
-                    required_action = kev_status.get("required_action", "")
-                    if required_action:
-                        lines.append(f"  - **Required Action:** {required_action}")
-                    if due_date:
-                        lines.append(f"  - **CISA Due Date:** {due_date}")
 
     if not any(f["vulnerabilities"] for f in findings):
         lines.append("\nNo vulnerabilities detected.  ")
 
     # Add warnings
-    if kev_count > 0:
-        lines.append(f"\n**CRITICAL:** {kev_count} vulnerabilities are in CISA's Known Exploited Vulnerabilities catalog - immediate remediation required!  ")
-
     if unknown_cvss_count > 0:
         lines.append(f"\n**Note:** {unknown_cvss_count} vulnerabilities have no CVSS score and require manual assessment.  ")
 
@@ -114,7 +85,7 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                 # Summary
                 if advice.get("summary"):
                     lines.append(f"\n**Summary:** {advice['summary']}\n")
-                
+
                 # Impact Analysis (AI-specific)
                 if advice.get("impact_analysis"):
                     impact = advice['impact_analysis']
@@ -139,7 +110,7 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                             lines.append(f"- **Command:** `{plan['upgrade_command']}`\n")
                         if plan.get("priority"):
                             lines.append(f"- **Priority:** {plan['priority'].upper()}\n")
-                        
+
                         # Detailed steps
                         if plan.get("steps"):
                             steps = plan["steps"]
@@ -149,7 +120,7 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                                     lines.append(f"{i}. {step}\n")
                             else:
                                 lines.append(f"\n**Steps:** {steps}\n")
-                        
+
                         # Breaking changes
                         if plan.get("breaking_changes"):
                             changes = plan["breaking_changes"]
@@ -159,23 +130,23 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                                     lines.append(f"- {change}\n")
                             elif changes:
                                 lines.append(f"\n**Breaking Changes:** {changes}\n")
-                        
+
                         # Testing strategy
                         if plan.get("testing_strategy"):
                             lines.append(f"\n**Testing Strategy:**\n{plan['testing_strategy']}\n")
-                        
+
                         # Migration guide (if provided)
                         if plan.get("migration_guide"):
                             lines.append(f"\n**Migration Guide:**\n{plan['migration_guide']}\n")
                     else:
                         # Plain text plan
                         lines.append(f"{plan}\n")
-                
+
                 # Risk Explanation (AI-specific)
                 if advice.get("risk_explanation"):
                     risk_exp = advice['risk_explanation']
                     lines.append(f"\n**Why This Matters:**\n")
-                    
+
                     if isinstance(risk_exp, dict):
                         # Format structured risk explanation
                         if risk_exp.get("potential_attacks"):

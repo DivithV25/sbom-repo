@@ -4,24 +4,19 @@ from agent.config_loader import get_config
 
 def compute_risk(findings):
     """
-    Compute risk score using formula: Risk = f(Vulnerability Count + CVSS + Reachability)
+    Compute risk score using formula: Risk = f(Vulnerability Count + CVSS)
+    Simplified version for Objectives 1 & 2 (no reachability analysis)
 
     Returns:
         {
             "max_cvss": float,
             "overall_severity": str,
             "total_vulnerabilities": int,
-            "reachable_vulnerabilities": int,
-            "unreachable_vulnerabilities": int,
             "risk_score": float,  # 0-10 scale
-            "reachability_adjusted_cvss": float
         }
     """
     max_cvss = 0.0
     total_vulns = 0
-    reachable_vulns = 0
-    unreachable_vulns = 0
-    max_reachable_cvss = 0.0
 
     # Cumulative risk factors
     weighted_cvss_sum = 0.0
@@ -31,28 +26,11 @@ def compute_risk(findings):
             total_vulns += 1
             cvss = vuln.get("cvss", 0.0) or 0.0
 
-            # Get reachability score (0.0 = unreachable, 1.0 = definitely reachable)
-            reachability_score = vuln.get("reachability_score", 0.5)
-            reachability_info = vuln.get("reachability", {})
-            is_reachable = reachability_info.get("reachable", True)
-
-            # Track reachable vs unreachable
-            if is_reachable:
-                reachable_vulns += 1
-            else:
-                unreachable_vulns += 1
-
-            # CVSS weighted by reachability
-            weighted_cvss = cvss * reachability_score
-            weighted_cvss_sum += weighted_cvss
+            weighted_cvss_sum += cvss
 
             # Track max CVSS overall
             if cvss > max_cvss:
                 max_cvss = cvss
-
-            # Track max CVSS for reachable vulnerabilities
-            if is_reachable and cvss > max_reachable_cvss:
-                max_reachable_cvss = cvss
 
     # Calculate composite risk score (0-10 scale)
     # Load weights from configuration
@@ -62,34 +40,23 @@ def compute_risk(findings):
     multiplier = cfg.get_vuln_count_multiplier()
 
     # Vulnerability count factor (normalized, capped at max_vuln_factor)
-    vuln_count_factor = min(reachable_vulns * multiplier, max_vuln_factor)
+    vuln_count_factor = min(total_vulns * multiplier, max_vuln_factor)
 
-    # CVSS factor (use max reachable CVSS)
-    cvss_factor = max_reachable_cvss
+    # CVSS factor (use max CVSS)
+    cvss_factor = max_cvss
 
-    # Reachability factor (ratio of reachable to total)
-    if total_vulns > 0:
-        reachability_factor = (reachable_vulns / total_vulns) * 10.0
-    else:
-        reachability_factor = 0.0
-
-    # Weighted composite score
+    # Simplified weighted composite score (no reachability)
     risk_score = (
         (weights['vulnerability_count'] * vuln_count_factor) +
-        (weights['cvss_score'] * cvss_factor) +
-        (weights['reachability'] * reachability_factor)
+        (weights['cvss_score'] * cvss_factor)
     )
     risk_score = round(risk_score, 2)
 
-    overall_severity = cvss_to_severity(max_reachable_cvss if reachable_vulns > 0 else max_cvss)
+    overall_severity = cvss_to_severity(max_cvss)
 
     return {
         "max_cvss": max_cvss,
-        "max_reachable_cvss": max_reachable_cvss,
         "overall_severity": overall_severity,
         "total_vulnerabilities": total_vulns,
-        "reachable_vulnerabilities": reachable_vulns,
-        "unreachable_vulnerabilities": unreachable_vulns,
-        "risk_score": risk_score,
-        "reachability_adjusted_cvss": max_reachable_cvss
+        "risk_score": risk_score
     }
