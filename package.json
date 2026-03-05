@@ -4,6 +4,6 @@
   "description": "Demo app with vulnerable dependencies for PRISM testing",
   "dependencies": {
     "lodash": "4.17.23",
-    "openssl":"1.0.0"
+    "openssl":"2.0.0"
   }
 }
