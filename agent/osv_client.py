@@ -1,9 +1,32 @@
 import requests
 from agent.config_loader import get_config
+from agent.cache.cache_manager import CacheManager
+from agent.cache.osv_cache import OSVCache
+
+# Initialize global cache manager (24-hour TTL)
+_cache_manager = CacheManager(cache_dir=".prism_cache", ttl_seconds=86400)
+_osv_cache = OSVCache(_cache_manager)
 
 
-def query_osv(package_name, version, ecosystem=None):
-    """Query OSV API for vulnerabilities"""
+def query_osv(package_name, version, ecosystem=None, use_cache=True):
+    """
+    Query OSV API for vulnerabilities with caching support
+
+    Args:
+        package_name: Package name
+        version: Package version
+        ecosystem: Package ecosystem (npm, pypi, etc.)
+        use_cache: Whether to use cache (default: True)
+
+    Returns:
+        List of vulnerability dictionaries
+    """
+    # Check cache first
+    if use_cache:
+        cached_result = _osv_cache.get(package_name, version, ecosystem)
+        if cached_result is not None:
+            return cached_result
+
     cfg = get_config()
     osv_api_url = cfg.get_api_endpoint('osv')
 
@@ -67,4 +90,23 @@ def query_osv(package_name, version, ecosystem=None):
             "raw_data": vuln  # Include full OSV data for remediation extraction
         })
 
+
+    # Cache the results
+    if use_cache:
+        _osv_cache.set(package_name, version, vulnerabilities, ecosystem)
+
     return vulnerabilities
+
+def get_cache_stats():
+    """Get cache performance statistics"""
+    return _cache_manager.get_stats()
+
+
+def clear_cache():
+    """Clear all OSV cache entries"""
+    return _osv_cache.clear()
+
+
+def cleanup_expired_cache():
+    """Remove expired cache entries"""
+    return _cache_manager.cleanup_expired()

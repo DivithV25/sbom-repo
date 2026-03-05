@@ -2,4 +2,4 @@ requests
 pyyaml
 python-dotenv
 # Optional: for enhanced features
-# openai>=1.0.0  # For AI-powered remediation (requires API key)
+# openai>=1.0.0  # For AI-powered remediation (requires API key)tqdm>=4.66.0  # Progress bars for parallel scanning
