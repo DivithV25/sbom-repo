@@ -373,11 +373,23 @@ Format your response as JSON with keys: impact_analysis, remediation_plan, risk_
 
         from agent.remediation_advisor import generate_remediation_advice as basic_remediation
 
-        # Use existing non-AI remediation logic
-        basic_advice = basic_remediation(vulnerabilities)
+        # Extract component information
+        package_name = component.get('name', 'unknown')
+        current_version = component.get('version', 'unknown')
+        ecosystem = self._detect_ecosystem(component)
+        reachability_info = component.get('reachability', {})
+
+        # Use existing non-AI remediation logic with proper parameters
+        basic_advice = basic_remediation(
+            package_name=package_name,
+            current_version=current_version,
+            ecosystem=ecosystem,
+            vulnerabilities=vulnerabilities,
+            reachability_info=reachability_info
+        )
 
         return {
-            "summary": f"Upgrade {component.get('name')} to fix {len(vulnerabilities)} vulnerabilities",
+            "summary": f"Upgrade {package_name} to fix {len(vulnerabilities)} vulnerabilities",
             "impact_analysis": "AI analysis not available - using basic assessment",
             "remediation_plan": basic_advice,
             "risk_explanation": f"This component has {len(vulnerabilities)} known vulnerabilities",
@@ -444,22 +456,22 @@ def generate_ai_remediation_summary(
 ) -> List[Dict[str, Any]]:
     """
     Module-level function to generate AI remediation summary for all findings.
-    
+
     Args:
         findings: List of findings with components and vulnerabilities
         project_root: Project root for code analysis
-        
+
     Returns:
         List of remediation advice dicts
     """
     advisor = AIRemediationAdvisor()
     remediations = []
-    
+
     for finding in findings:
         component = finding.get("component", {})
         vulnerabilities = finding.get("vulnerabilities", [])
         reachability = finding.get("reachability", {})
-        
+
         if vulnerabilities:
             advice = advisor.generate_remediation_advice(
                 component,
@@ -471,7 +483,7 @@ def generate_ai_remediation_summary(
                 "component": component,
                 "advice": advice
             })
-    
+
     return remediations
 
 
