@@ -41,11 +41,6 @@ def main():
         help="Enable automated update recommendations",
         action="store_true"
     )
-    parser.add_argument(
-        "--log-dashboard",
-        help="Log results to dashboard",
-        action="store_true"
-    )
 
     args = parser.parse_args()
 
