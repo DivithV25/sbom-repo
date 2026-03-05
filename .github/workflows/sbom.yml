@@ -48,13 +48,33 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Run Vulnerability Scanner
+      - name: Download Previous SBOM (for diff comparison)
+        id: download-previous
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom-main
+          path: previous-sbom/
+
+      - name: Run Enhanced Vulnerability Scanner
         id: vuln-scan
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          echo "🔍 Scanning SBOM for vulnerabilities..."
-          python -m agent.main sbom.json --output vulnscan-output
+          echo "🔍 Running enhanced PRISM security scan..."
+
+          # Build command with all enhancements
+          CMD="python -m agent.main sbom.json --output vulnscan-output --log-dashboard --enable-updates"
+
+          # Add previous SBOM for diff if available
+          if [ -f previous-sbom/sbom.json ]; then
+            echo "📊 Previous SBOM found - enabling diff analysis"
+            CMD="$CMD --previous-sbom previous-sbom/sbom.json"
+          fi
+
+          # Run the scan
+          $CMD
+
           echo "scan_complete=true" >> $GITHUB_OUTPUT
 
       - name: Display Vulnerability Report
@@ -84,6 +104,14 @@ jobs:
           name: vulnerability-report-pr-${{ github.event.pull_request.number }}
           path: vulnscan-output/
 
+      - name: Upload Dashboard Data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-data
+          path: dashboard_data/
+          retention-days: 30
+
       - name: Post PR Comment with Results
         if: always() && github.event.pull_request.number
         uses: actions/github-script@v7
@@ -91,12 +119,12 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            let comment = '## 🔐 PRISM Security Scan Results\n\n';
+            let comment = '';
 
             if (fs.existsSync('vulnscan-output/pr_comment.md')) {
-              comment += fs.readFileSync('vulnscan-output/pr_comment.md', 'utf8');
+              comment = fs.readFileSync('vulnscan-output/pr_comment.md', 'utf8');
             } else {
-              comment += '⚠️ Scan failed to complete. Check the workflow logs.';
+              comment = '## 🔐 PRISM Security Scan Results\n\n⚠️ Scan failed to complete. Check the workflow logs.';
             }
 
             // Post comment

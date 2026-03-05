@@ -1,0 +1,41 @@
+name: Generate Baseline SBOM
+
+on:
+  push:
+    branches:
+      - main
+      - eval/**
+
+permissions:
+  contents: read
+
+jobs:
+  generate-baseline:
+    runs-on: ubuntu-latest
+    name: Generate and Store Baseline SBOM
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Generate SBOM with CycloneDX
+        uses: CycloneDX/gh-node-module-generatebom@v1.1.1
+        with:
+          path: ./
+          output: sbom.json
+
+      - name: Upload Baseline SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.ref_name }}
+          path: sbom.json
+          retention-days: 90
+
+      - name: Display SBOM Summary
+        run: |
+          echo "✅ Baseline SBOM generated for branch: ${{ github.ref_name }}"
+          echo "This will be used for diff comparison in PRs"
+          if [ -f sbom.json ]; then
+            echo ""
+            echo "SBOM Statistics:"
+            jq -r '.components | length' sbom.json | xargs -I {} echo "  Components: {}"
+          fi

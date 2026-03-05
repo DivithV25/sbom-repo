@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PRISM Security Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: #667eea;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            color: #666;
+            font-size: 16px;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .metric-card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .metric-label {
+            color: #999;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .metric-value {
+            font-size: 36px;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .metric-value.danger {
+            color: #e74c3c;
+        }
+
+        .metric-value.warning {
+            color: #f39c12;
+        }
+
+        .metric-value.success {
+            color: #27ae60;
+        }
+
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 30px;
+        }
+
+        .chart-card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .chart-title {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+        }
+
+        .severity-badge {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin: 5px;
+        }
+
+        .severity-critical {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .severity-high {
+            background: #e67e22;
+            color: white;
+        }
+
+        .severity-medium {
+            background: #f39c12;
+            color: white;
+        }
+
+        .severity-low {
+            background: #27ae60;
+            color: white;
+        }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔐 PRISM Security Dashboard</h1>
+            <p class="subtitle">Pull-Request Integrated Security Mechanism</p>
+        </header>
+
+        <div class="metrics-grid" id="metrics">
+            <div class="metric-card">
+                <div class="metric-label">Total Scans</div>
+                <div class="metric-value" id="totalScans">--</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Avg Vulnerabilities</div>
+                <div class="metric-value warning" id="avgVulns">--</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Avg Risk Score</div>
+                <div class="metric-value" id="avgRisk">--</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Highest Risk</div>
+                <div class="metric-value danger" id="highestRisk">--</div>
+            </div>
+        </div>
+
+        <div class="chart-grid">
+            <div class="chart-card">
+                <div class="chart-title">📈 Vulnerability Trend (30 Days)</div>
+                <div class="chart-container">
+                    <canvas id="vulnTrendChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-title">🎯 Severity Distribution</div>
+                <div class="chart-container">
+                    <canvas id="severityChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-title">📊 Risk Score Trend</div>
+                <div class="chart-container">
+                    <canvas id="riskTrendChart"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <div class="chart-title">⚡ CVSS Score Trend</div>
+                <div class="chart-container">
+                    <canvas id="cvssChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load dashboard data
+        async function loadDashboardData() {
+            try {
+                const response = await fetch('dashboard_data/dashboard_data.json');
+                const data = await response.json();
+                updateDashboard(data);
+            } catch (error) {
+                console.error('Error loading dashboard data:', error);
+                document.getElementById('metrics').innerHTML =
+                    '<div class="loading">No data available. Run a scan first to generate dashboard data.</div>';
+            }
+        }
+
+        function updateDashboard(data) {
+            // Update metrics
+            const summary = data.summary;
+            document.getElementById('totalScans').textContent = summary.total_scans;
+            document.getElementById('avgVulns').textContent = summary.avg_vulnerabilities.toFixed(1);
+            document.getElementById('avgRisk').textContent = summary.avg_risk_score.toFixed(1);
+            document.getElementById('highestRisk').textContent =
+                summary.highest_risk_scan ? summary.highest_risk_scan.risk_score.toFixed(1) : 'N/A';
+
+            // Create charts
+            createVulnTrendChart(data.trends);
+            createSeverityChart(data.severity_distribution);
+            createRiskTrendChart(data.trends);
+            createCvssChart(data.trends);
+        }
+
+        function createVulnTrendChart(trends) {
+            const ctx = document.getElementById('vulnTrendChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: trends.timestamps.map(t => new Date(t).toLocaleDateString()),
+                    datasets: [{
+                        label: 'Vulnerabilities',
+                        data: trends.vulnerability_counts,
+                        borderColor: '#e74c3c',
+                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        }
+
+        function createSeverityChart(distribution) {
+            const ctx = document.getElementById('severityChart').getContext('2d');
+            const labels = Object.keys(distribution);
+            const values = Object.values(distribution);
+
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: [
+                            '#e74c3c',  // CRITICAL
+                            '#e67e22',  // HIGH
+                            '#f39c12',  // MEDIUM
+                            '#27ae60',  // LOW
+                            '#95a5a6'   // UNKNOWN
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        function createRiskTrendChart(trends) {
+            const ctx = document.getElementById('riskTrendChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: trends.timestamps.map(t => new Date(t).toLocaleDateString()),
+                    datasets: [{
+                        label: 'Risk Score',
+                        data: trends.risk_scores,
+                        borderColor: '#9b59b6',
+                        backgroundColor: 'rgba(155, 89, 182, 0.1)',
+                        tension: 0.4,
+                        fill: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 10
+                        }
+                    }
+                }
+            });
+        }
+
+        function createCvssChart(trends) {
+            const ctx = document.getElementById('cvssChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: trends.timestamps.map(t => new Date(t).toLocaleDateString()),
+                    datasets: [{
+                        label: 'Max CVSS',
+                        data: trends.cvss_scores,
+                        backgroundColor: '#3498db',
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 10
+                        }
+                    }
+                }
+            });
+        }
+
+        // Load data on page load
+        loadDashboardData();
+
+        // Refresh every 60 seconds
+        setInterval(loadDashboardData, 60000);
+    </script>
+</body>
+</html>
