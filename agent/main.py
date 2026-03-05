@@ -44,7 +44,8 @@ def main():
     args = parser.parse_args()
 
     # Check AI configuration
-    import agent.config_loader as cfg
+    from agent.config_loader import get_config
+    cfg = get_config()
     use_ai = (not args.no_ai) and cfg.is_ai_enabled()
 
     if use_ai:
