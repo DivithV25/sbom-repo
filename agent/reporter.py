@@ -4,23 +4,23 @@ import os
 
 def generate_markdown_report(risk_summary, findings, decision, reason, remediations=None):
     lines = []
-    lines.append("## 🔐 PRISM Security Agent Report\n")
+    lines.append("# PRISM Security Scan Results\n")
 
-    # Decision emoji based on result
-    decision_emoji = {
-        "PASS": "✅",
-        "WARN": "⚠️",
-        "FAIL": "❌"
-    }.get(decision, "❓")
+    # Decision indicator
+    decision_symbol = {
+        "PASS": "✓",
+        "WARN": "!",
+        "FAIL": "✗"
+    }.get(decision, "?")
 
-    lines.append(f"**Decision:** {decision_emoji} {decision}  ")
+    lines.append(f"**Decision:** {decision_symbol} **{decision}**  ")
     lines.append(f"**Overall Severity:** {risk_summary['overall_severity']}  ")
     lines.append(f"**Risk Score:** {risk_summary.get('risk_score', 'N/A')} / 10  ")
     lines.append(f"**Max CVSS:** {risk_summary['max_cvss']} (Reachable: {risk_summary.get('max_reachable_cvss', 'N/A')})  ")
     lines.append(f"**Total Vulnerabilities:** {risk_summary['total_vulnerabilities']} ({risk_summary.get('reachable_vulnerabilities', 0)} reachable, {risk_summary.get('unreachable_vulnerabilities', 0)} unreachable)  \n")
 
     lines.append("---\n")
-    lines.append("### 🚨 Vulnerable Components\n")
+    lines.append("## Vulnerable Components\n")
 
     # Track vulnerabilities without CVSS scores and KEV status
     unknown_cvss_count = 0
@@ -30,10 +30,10 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
         if finding["vulnerabilities"]:
             comp = finding["component"]
             reach_info = comp.get("reachability", {})
-            reach_status = "✅ Reachable" if reach_info.get("reachable", True) else "🚫 Not Reachable"
+            reach_status = "[Reachable]" if reach_info.get("reachable", True) else "[Not Reachable]"
             reach_reason = reach_info.get("reason", "Unknown")
 
-            lines.append(f"\n#### {comp['name']}@{comp['version']} - {reach_status}")
+            lines.append(f"\n### {comp['name']}@{comp['version']} - {reach_status}")
             lines.append(f"*{reach_reason}*\n")
 
             for vuln in finding["vulnerabilities"]:
@@ -49,7 +49,7 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
 
                 # Add KEV warning
                 if is_kev:
-                    vuln_line += " 🚨 **ACTIVELY EXPLOITED**"
+                    vuln_line += " **[ACTIVELY EXPLOITED]**"
                     kev_count += 1
 
                 # Add CVSS info
@@ -82,19 +82,19 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                         lines.append(f"  - **CISA Due Date:** {due_date}")
 
     if not any(f["vulnerabilities"] for f in findings):
-        lines.append("\n✅ No vulnerabilities detected.  ")
+        lines.append("\nNo vulnerabilities detected.  ")
 
     # Add warnings
     if kev_count > 0:
-        lines.append(f"\n🚨 **CRITICAL WARNING:** {kev_count} vulnerabilities are in CISA's Known Exploited Vulnerabilities catalog - immediate remediation required!  ")
+        lines.append(f"\n**CRITICAL:** {kev_count} vulnerabilities are in CISA's Known Exploited Vulnerabilities catalog - immediate remediation required!  ")
 
     if unknown_cvss_count > 0:
-        lines.append(f"\n⚠️ **Note:** {unknown_cvss_count} vulnerabilities have no CVSS score and require manual assessment.  ")
+        lines.append(f"\n**Note:** {unknown_cvss_count} vulnerabilities have no CVSS score and require manual assessment.  ")
 
     # Add remediation section if available
     if remediations and any(r.get("recommended_version") for r in remediations):
         lines.append("\n---\n")
-        lines.append("### 💊 Remediation Recommendations\n")
+        lines.append("## Remediation Recommendations\n")
 
         for remediation in remediations:
             if not remediation.get("recommended_version"):
@@ -105,15 +105,15 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
             recommended = remediation["recommended_version"]
             priority = remediation["priority"].upper()
 
-            # Priority emoji
-            priority_emoji = {
-                "CRITICAL": "🚨",
-                "HIGH": "⚠️",
-                "MEDIUM": "ℹ️",
-                "LOW": "✅"
-            }.get(priority, "❓")
+            # Priority indicator
+            priority_indicator = {
+                "CRITICAL": "[!]",
+                "HIGH": "[!]",
+                "MEDIUM": "[i]",
+                "LOW": "[·]"
+            }.get(priority, "[?]")
 
-            lines.append(f"\n#### {priority_emoji} {comp}@{current} → {recommended} ({priority} Priority)")
+            lines.append(f"\n### {priority_indicator} {comp}@{current} → {recommended} ({priority} Priority)")
 
             # Add upgrade command
             if remediation.get("upgrade_command"):
@@ -133,7 +133,7 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                 lines.append(f"\n{change['warning']}  ")
 
     lines.append("\n---\n")
-    lines.append(f"### 🛡️ Policy Decision\n\n{reason}\n")
+    lines.append(f"## Policy Decision\n\n{reason}\n")
 
     return "\n".join(lines)
 
