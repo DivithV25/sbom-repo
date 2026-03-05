@@ -63,7 +63,7 @@ def main():
     else:
         remediations = generate_remediation_summary(findings)
 
-    rules = load_rules(args.rules) if args.rules else None
+    rules = load_rules(args.rules)
 
     # Use Python-based policy evaluation (OPA removed)
     decision, reason = evaluate_policy(risk_summary, findings, rules)
