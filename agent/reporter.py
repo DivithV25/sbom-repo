@@ -92,11 +92,69 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
         lines.append(f"\n**Note:** {unknown_cvss_count} vulnerabilities have no CVSS score and require manual assessment.  ")
 
     # Add remediation section if available
-    if remediations and any(r.get("recommended_version") for r in remediations):
+    if remediations:
         lines.append("\n---\n")
         lines.append("## Remediation Recommendations\n")
 
         for remediation in remediations:
+            # Handle AI remediation format (nested structure)
+            if "advice" in remediation:
+                advice = remediation["advice"]
+                component = remediation["component"]
+                comp_name = component.get("name", "unknown")
+                comp_version = component.get("version", "unknown")
+
+                is_ai = advice.get("ai_generated", False)
+
+                if is_ai:
+                    lines.append(f"\n### 🤖 AI-Powered Remediation for {comp_name}@{comp_version}\n")
+                else:
+                    lines.append(f"\n### {comp_name}@{comp_version}\n")
+
+                # Summary
+                if advice.get("summary"):
+                    lines.append(f"**Summary:** {advice['summary']}\n")
+
+                # Impact Analysis (AI-specific)
+                if advice.get("impact_analysis"):
+                    lines.append(f"\n**Impact Analysis:**\n{advice['impact_analysis']}\n")
+
+                # Remediation Plan (AI-specific)
+                if advice.get("remediation_plan"):
+                    plan = advice["remediation_plan"]
+                    lines.append(f"\n**Remediation Plan:**\n")
+
+                    # Check if it's a dict with detailed structure or just text
+                    if isinstance(plan, dict):
+                        if plan.get("recommended_version"):
+                            lines.append(f"- **Upgrade to:** {plan['recommended_version']}\n")
+                        if plan.get("upgrade_command"):
+                            lines.append(f"- **Command:** `{plan['upgrade_command']}`\n")
+                        if plan.get("steps"):
+                            lines.append(f"\n**Steps:**\n")
+                            for step in plan["steps"]:
+                                lines.append(f"{step}\n")
+                        if plan.get("breaking_changes"):
+                            lines.append(f"\n**Breaking Changes:**\n")
+                            for change in plan["breaking_changes"]:
+                                lines.append(f"- {change}\n")
+                        if plan.get("testing_strategy"):
+                            lines.append(f"\n**Testing Strategy:**\n{plan['testing_strategy']}\n")
+                    else:
+                        # Plain text plan
+                        lines.append(f"{plan}\n")
+
+                # Risk Explanation (AI-specific)
+                if advice.get("risk_explanation"):
+                    lines.append(f"\n**Why This Matters:**\n{advice['risk_explanation']}\n")
+
+                # Estimated Effort
+                if advice.get("estimated_effort"):
+                    lines.append(f"\n**Estimated Effort:** {advice['estimated_effort']}\n")
+
+                continue
+
+            # Handle basic remediation format (flat structure)
             if not remediation.get("recommended_version"):
                 continue
 
