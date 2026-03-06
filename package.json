@@ -4,6 +4,6 @@
   "description": "Demo app with vulnerable dependencies for PRISM testing",
   "dependencies": {
     "lodash": "4.17.20",
-    "event-stream": "3.3.6"
+    "event-stream": "3.3.5"
   }
 }
