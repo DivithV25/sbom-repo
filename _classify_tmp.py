@@ -77,6 +77,13 @@ labeled = [
     (f"{T}/sbom_multi_blocked_clean.json",         "FAIL", "lodash 4.17.23 safe + openssl blocked"),
     (f"{T}/sbom_multi_critical.json",              "FAIL", "lodash + handlebars + axios all vuln"),
     (f"{T}/sbom_empty.json",                       "PASS", "empty SBOM — no components"),
+    # --- Cross-ecosystem & severity edge cases (51-56) ---
+    (f"{T}/sbom_maven_log4j.json",                 "FAIL", "Maven: log4j-core 2.14.1 (Log4Shell)"),
+    (f"{T}/sbom_maven_safe.json",                  "PASS", "Maven: guava 32.1.3 safe"),
+    (f"{T}/sbom_pypi_requests_vuln.json",           "FAIL", "PyPI: requests 2.25.0 vuln"),
+    (f"{T}/sbom_pypi_safe.json",                   "PASS", "PyPI: boto3 1.34.0 safe"),
+    (f"{T}/sbom_low_severity_only.json",           "PASS", "LOW severity only — should PASS"),
+    (f"{T}/sbom_critical_lodash.json",             "FAIL", "CRITICAL: lodash 4.17.15"),
 ]
 
 def run_pipeline(sbom_path):
