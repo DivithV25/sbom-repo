@@ -4,7 +4,6 @@
   "description": "Demo app with vulnerable dependencies for PRISM testing",
   "dependencies": {
     "lodash": "4.17.20",
-    "event-stream": "3.3.5",
-    "serialize-javascript": "2.1.1"
+    "serialize-javascript": "7.0.3"
   }
 }
