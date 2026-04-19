@@ -162,10 +162,12 @@ jobs:
                   
                   let position = 0;
                   for (const line of lines) {
+                    // Skip @@ header lines - don't count them in position
+                    if (line.startsWith('@@')) continue;
+                    
                     position++;
                     
-                    // Count position in diff (ignore old lines that start with -)
-                    if (line.startsWith('@@')) continue;
+                    // Skip removed lines but count them in position
                     if (line.startsWith('-')) continue;
                     
                     // Look for the package in the line
