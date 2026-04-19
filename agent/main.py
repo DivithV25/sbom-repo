@@ -1,10 +1,54 @@
 import argparse
+import json
+import os
+from pathlib import Path
 from agent.sbom_parser import load_sbom, extract_components
 from agent.osv_client import query_osv
 from agent.risk_engine import compute_risk
 from agent.policy_engine import load_rules, evaluate_policy
 from agent.reporter import generate_markdown_report, save_outputs
 from agent.remediation_advisor import generate_remediation_summary
+
+
+def save_decision_status(output_dir: str, decision: str, reason: str, risk_summary: dict):
+    """
+    Save decision status to a file for CI/CD pipeline to read.
+    
+    This creates a decision.json file that contains:
+    - decision (PASS/WARN/FAIL)
+    - reason (explanation)
+    - risk_summary (severity, counts, etc.)
+    
+    Used by GitHub Actions workflow to determine if PR should be blocked.
+    
+    Args:
+        output_dir: Output directory path
+        decision: The security decision (PASS, WARN, FAIL)
+        reason: Reason for the decision
+        risk_summary: Summary of detected risks
+    """
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    
+    decision_file = output_path / "decision.json"
+    
+    decision_data = {
+        "decision": decision,
+        "reason": reason,
+        "overall_severity": risk_summary.get("overall_severity", "UNKNOWN"),
+        "total_vulnerabilities": risk_summary.get("total_vulnerabilities", 0),
+        "critical_vulnerabilities": risk_summary.get("critical_vulnerabilities", 0),
+        "high_vulnerabilities": risk_summary.get("high_vulnerabilities", 0),
+        "medium_vulnerabilities": risk_summary.get("medium_vulnerabilities", 0),
+        "low_vulnerabilities": risk_summary.get("low_vulnerabilities", 0),
+        "reachable_vulnerabilities": risk_summary.get("reachable_vulnerabilities", 0),
+        "risk_score": risk_summary.get("risk_score", 0.0)
+    }
+    
+    with open(str(decision_file), 'w') as f:
+        json.dump(decision_data, f, indent=2)
+    
+    print(f"\n📋 Decision status saved to: {decision_file}")
 
 
 def main():
@@ -93,6 +137,9 @@ def main():
     }
 
     save_outputs(args.output, markdown, report_data)
+    
+    # Save decision status for CI/CD pipeline to read
+    save_decision_status(args.output, decision, reason, risk_summary)
 
     print(markdown)
 

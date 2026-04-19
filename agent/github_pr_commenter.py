@@ -253,6 +253,63 @@ def generate_github_review_payload(
     }
 
 
+def generate_pr_blocking_review(
+    decision: str,
+    reason: str,
+    risk_summary: Dict[str, Any],
+    commit_sha: str
+) -> Dict[str, Any]:
+    """
+    Generate a blocking review when security decision is FAIL.
+    
+    Uses REQUEST_CHANGES event to prevent merge until resolved.
+    This requires the reviewing user to have write permissions.
+    
+    Args:
+        decision: The security decision (FAIL, PASS, WARN)
+        reason: The reason for the decision
+        risk_summary: Summary of risks detected
+        commit_sha: The commit SHA to review
+        
+    Returns:
+        Payload for github.rest.pulls.createReview with REQUEST_CHANGES event
+    """
+    if decision.upper() != "FAIL":
+        return None
+    
+    # Build detailed blocking message
+    body = "🔒 **PRISM Security Scan: MERGE BLOCKED**\n\n"
+    body += f"**Decision:** ❌ {decision}\n\n"
+    body += f"**Reason:** {reason}\n\n"
+    
+    # Add risk details
+    overall_severity = risk_summary.get("overall_severity", "UNKNOWN")
+    total_vulns = risk_summary.get("total_vulnerabilities", 0)
+    critical_count = risk_summary.get("critical_vulnerabilities", 0)
+    high_count = risk_summary.get("high_vulnerabilities", 0)
+    
+    body += "**Risk Summary:**\n"
+    body += f"- Overall Severity: **{overall_severity}**\n"
+    body += f"- Total Vulnerabilities: {total_vulns}\n"
+    if critical_count > 0:
+        body += f"- Critical Issues: {critical_count}\n"
+    if high_count > 0:
+        body += f"- High Issues: {high_count}\n"
+    
+    body += "\n**Action Required:**\n"
+    body += "1. Review all vulnerability findings in the PR comment\n"
+    body += "2. Apply recommended security fixes or remediations\n"
+    body += "3. Ensure all vulnerabilities are resolved to 'PASS' status\n"
+    body += "4. Push changes to update this review\n\n"
+    body += "For critical security issues, this merge is blocked until remediated."
+    
+    return {
+        "commit_id": commit_sha,
+        "body": body,
+        "event": "REQUEST_CHANGES"  # This blocks the merge
+    }
+
+
 # Export for use in GitHub Actions workflow
 if __name__ == "__main__":
     print("This module is meant to be imported by the reporter and GitHub Actions workflow.")
