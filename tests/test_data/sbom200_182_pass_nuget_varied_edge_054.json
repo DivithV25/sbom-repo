@@ -1,0 +1,24 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-nuget-054",
+      "version": "7.16.21",
+      "purl": "pkg:nuget/safe-nuget-054@7.16.21"
+    },
+    {
+      "type": "library",
+      "name": "aux-safe-054",
+      "version": "1.4.0",
+      "purl": "pkg:npm/aux-safe-054@1.4.0"
+    },
+    {
+      "type": "library",
+      "name": "safe-nuget-054",
+      "version": "7.16.21",
+      "purl": "pkg:nuget/safe-nuget-054@7.16.21"
+    }
+  ]
+}

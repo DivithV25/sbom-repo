@@ -1,0 +1,17 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "openssl",
+      "version": "5.7.3"
+    },
+    {
+      "type": "library",
+      "name": "prism-fail-maven-009",
+      "version": "0.8.11",
+      "purl": "pkg:maven/org.prism.e0/artifact-009@0.8.11"
+    }
+  ]
+}

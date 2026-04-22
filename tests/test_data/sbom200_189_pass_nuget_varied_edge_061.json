@@ -1,0 +1,12 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-nuget-061",
+      "version": "7.19.22",
+      "purl": "pkg:nuget/safe-nuget-061@7.19.22"
+    }
+  ]
+}

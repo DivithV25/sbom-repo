@@ -1,0 +1,18 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-npm-057",
+      "version": "3.3.17",
+      "purl": "pkg:npm/safe-npm-057@3.3.17"
+    },
+    {
+      "type": "library",
+      "name": "aux-safe-057",
+      "version": "1.7.0",
+      "purl": "pkg:npm/aux-safe-057@1.7.0"
+    }
+  ]
+}

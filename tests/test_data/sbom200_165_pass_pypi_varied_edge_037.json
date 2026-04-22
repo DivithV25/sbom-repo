@@ -1,0 +1,12 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-pypi-037",
+      "version": "4.23.23",
+      "purl": "pkg:pypi/safe-pypi-037@4.23.23"
+    }
+  ]
+}

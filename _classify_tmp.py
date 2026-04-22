@@ -4,6 +4,7 @@ Runs the complete pipeline on each labeled SBOM and computes:
   TP, TN, FP, FN, Accuracy, Precision, Recall, Specificity, F1, FPR, FNR
 """
 import sys, os, time
+from pathlib import Path
 sys.path.insert(0, '.')
 from agent.sbom_parser import load_sbom, extract_components
 from agent.osv_client import query_osv
@@ -85,6 +86,22 @@ labeled = [
     (f"{T}/sbom_low_severity_only.json",           "PASS", "LOW severity only — should PASS"),
     (f"{T}/sbom_critical_lodash.json",             "FAIL", "CRITICAL: lodash 4.17.15"),
 ]
+
+# Auto-include expanded dataset files (57-200) created under tests/test_data.
+# Filename convention:
+#   sbom200_XXX_pass_*.json -> GT=PASS
+#   sbom200_XXX_fail_*.json -> GT=FAIL
+for p in sorted(Path(T).glob("sbom200_*.json")):
+    name = p.name.lower()
+    if "_pass_" in name:
+        gt = "PASS"
+    elif "_fail_" in name:
+        gt = "FAIL"
+    else:
+        continue
+
+    desc = p.stem.replace("_", " ")
+    labeled.append((str(p).replace("\\", "/"), gt, desc))
 
 def run_pipeline(sbom_path):
     sbom_data = load_sbom(sbom_path)

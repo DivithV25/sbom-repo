@@ -1,0 +1,12 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-maven-038",
+      "version": "5.2.1",
+      "purl": "pkg:maven/com.prism.safe5/safe-artifact-038@5.2.1"
+    }
+  ]
+}

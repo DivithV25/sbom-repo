@@ -1,0 +1,21 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "openssl",
+      "version": "2.8.22"
+    },
+    {
+      "type": "library",
+      "name": "prism-fail-golang-016",
+      "version": "0.2.12",
+      "purl": "pkg:golang/github.com/prism/failmod016@0.2.12"
+    },
+    {
+      "type": "library",
+      "name": "missing-version-016"
+    }
+  ]
+}

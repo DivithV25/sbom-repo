@@ -1,0 +1,16 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-rubygems-020",
+      "version": "8.5.25",
+      "purl": "pkg:rubygems/safe-rubygems-020@8.5.25"
+    },
+    {
+      "type": "library",
+      "name": "no-version-pass-020"
+    }
+  ]
+}

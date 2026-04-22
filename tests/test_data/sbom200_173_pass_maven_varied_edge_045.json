@@ -1,0 +1,28 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-maven-045",
+      "version": "5.5.2",
+      "purl": "pkg:maven/com.prism.safe1/safe-artifact-045@5.5.2"
+    },
+    {
+      "type": "library",
+      "name": "aux-safe-045",
+      "version": "1.5.0",
+      "purl": "pkg:npm/aux-safe-045@1.5.0"
+    },
+    {
+      "type": "library",
+      "name": "no-version-pass-045"
+    },
+    {
+      "type": "library",
+      "name": "safe-maven-045",
+      "version": "5.5.2",
+      "purl": "pkg:maven/com.prism.safe1/safe-artifact-045@5.5.2"
+    }
+  ]
+}

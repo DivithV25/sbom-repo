@@ -1,0 +1,22 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-generic-021",
+      "version": "2.9.3"
+    },
+    {
+      "type": "library",
+      "name": "aux-safe-021",
+      "version": "1.1.0",
+      "purl": "pkg:npm/aux-safe-021@1.1.0"
+    },
+    {
+      "type": "library",
+      "name": "unicode-safe-021-cafe",
+      "version": "1.0.0"
+    }
+  ]
+}

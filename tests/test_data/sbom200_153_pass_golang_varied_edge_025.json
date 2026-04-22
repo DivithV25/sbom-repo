@@ -1,0 +1,16 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-go-025",
+      "version": "6.0.8",
+      "purl": "pkg:golang/github.com/prism/safego025@6.0.8"
+    },
+    {
+      "type": "library",
+      "name": "no-version-pass-025"
+    }
+  ]
+}

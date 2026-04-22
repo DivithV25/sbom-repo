@@ -1,0 +1,17 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "openssl",
+      "version": "1.5.25"
+    },
+    {
+      "type": "library",
+      "name": "prism-fail-npm-055",
+      "version": "0.0.3",
+      "purl": "pkg:npm/prism-fail-npm-055@0.0.3"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "openssl",
+      "version": "1.10.0"
+    },
+    {
+      "type": "library",
+      "name": "prism-fail-rubygems-030",
+      "version": "0.0.14",
+      "purl": "pkg:rubygems/prism-fail-rubygems-030@0.0.14"
+    },
+    {
+      "type": "library",
+      "name": "openssl",
+      "version": "1.10.0"
+    },
+    {
+      "type": "library",
+      "name": "dev-only-030",
+      "version": "1.0.0",
+      "purl": "pkg:npm/dev-only-030@1.0.0",
+      "properties": [
+        {
+          "name": "cdx:npm:package:development",
+          "value": "true"
+        }
+      ],
+      "scope": "development"
+    }
+  ]
+}

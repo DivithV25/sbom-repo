@@ -1,0 +1,24 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-rubygems-027",
+      "version": "8.8.26",
+      "purl": "pkg:rubygems/safe-rubygems-027@8.8.26"
+    },
+    {
+      "type": "library",
+      "name": "aux-safe-027",
+      "version": "1.7.0",
+      "purl": "pkg:npm/aux-safe-027@1.7.0"
+    },
+    {
+      "type": "library",
+      "name": "safe-rubygems-027",
+      "version": "8.8.26",
+      "purl": "pkg:rubygems/safe-rubygems-027@8.8.26"
+    }
+  ]
+}
