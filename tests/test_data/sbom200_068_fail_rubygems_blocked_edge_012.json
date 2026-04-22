@@ -1,0 +1,22 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "openssl",
+      "version": "3.16.24"
+    },
+    {
+      "type": "library",
+      "name": "prism-fail-rubygems-012",
+      "version": "0.4.9",
+      "purl": "pkg:rubygems/prism-fail-rubygems-012@0.4.9"
+    },
+    {
+      "type": "library",
+      "name": "openssl",
+      "version": "3.16.24"
+    }
+  ]
+}

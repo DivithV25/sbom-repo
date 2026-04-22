@@ -1,0 +1,24 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-pypi-009",
+      "version": "4.11.19",
+      "purl": "pkg:pypi/safe-pypi-009@4.11.19"
+    },
+    {
+      "type": "library",
+      "name": "aux-safe-009",
+      "version": "1.9.0",
+      "purl": "pkg:npm/aux-safe-009@1.9.0"
+    },
+    {
+      "type": "library",
+      "name": "safe-pypi-009",
+      "version": "4.11.19",
+      "purl": "pkg:pypi/safe-pypi-009@4.11.19"
+    }
+  ]
+}

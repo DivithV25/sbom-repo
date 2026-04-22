@@ -1,0 +1,21 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "openssl",
+      "version": "3.16.14"
+    },
+    {
+      "type": "library",
+      "name": "prism-fail-pypi-032",
+      "version": "0.4.7",
+      "purl": "pkg:pypi/prism-fail-pypi-032@0.4.7"
+    },
+    {
+      "type": "library",
+      "name": "missing-version-032"
+    }
+  ]
+}

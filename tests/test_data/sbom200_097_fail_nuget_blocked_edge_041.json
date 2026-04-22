@@ -1,0 +1,17 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "openssl",
+      "version": "2.3.17"
+    },
+    {
+      "type": "library",
+      "name": "prism-fail-nuget-041",
+      "version": "0.2.1",
+      "purl": "pkg:nuget/prism-fail-nuget-041@0.2.1"
+    }
+  ]
+}

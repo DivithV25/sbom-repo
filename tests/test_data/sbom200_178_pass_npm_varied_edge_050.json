@@ -1,0 +1,16 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-npm-050",
+      "version": "3.0.16",
+      "purl": "pkg:npm/safe-npm-050@3.0.16"
+    },
+    {
+      "type": "library",
+      "name": "no-version-pass-050"
+    }
+  ]
+}

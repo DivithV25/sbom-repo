@@ -1,0 +1,20 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-generic-070",
+      "version": "2.5.10"
+    },
+    {
+      "type": "library",
+      "name": "no-version-pass-070"
+    },
+    {
+      "type": "library",
+      "name": "unicode-safe-070-cafe",
+      "version": "1.0.0"
+    }
+  ]
+}

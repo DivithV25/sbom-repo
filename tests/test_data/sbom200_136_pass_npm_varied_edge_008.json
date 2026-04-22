@@ -1,0 +1,12 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-npm-008",
+      "version": "3.7.10",
+      "purl": "pkg:npm/safe-npm-008@3.7.10"
+    }
+  ]
+}

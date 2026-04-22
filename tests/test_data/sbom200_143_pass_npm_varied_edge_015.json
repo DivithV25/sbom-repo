@@ -1,0 +1,22 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "components": [
+    {
+      "type": "library",
+      "name": "safe-npm-015",
+      "version": "3.10.11",
+      "purl": "pkg:npm/safe-npm-015@3.10.11"
+    },
+    {
+      "type": "library",
+      "name": "aux-safe-015",
+      "version": "1.5.0",
+      "purl": "pkg:npm/aux-safe-015@1.5.0"
+    },
+    {
+      "type": "library",
+      "name": "no-version-pass-015"
+    }
+  ]
+}
