@@ -177,8 +177,13 @@ jobs:
                          ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
                          `Upgrade ${componentName} to ${recommendedVersion}`);
 
+                      const currentLine = line.replace(/^[+ ]/, '');
+                      const suggestedLine = currentLine.replace(currentVersion, recommendedVersion);
+
                       const fixComment = `✅ **Vulnerability Fix Available**\n\n` +
                         `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${recommendedVersion}\`\n\n` +
+                        `**Line replacement:**\n\`\`\`diff\n- ${currentLine}\n+ ${suggestedLine}\n\`\`\`\n\n` +
+                        `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestedLine}\n\`\`\`\n\n` +
                         `**Fix command:**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
                         `This is a patch version upgrade (safe to apply). Always run tests after updating.`;
 
