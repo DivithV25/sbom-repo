@@ -4,20 +4,21 @@ import os
 from pathlib import Path
 from agent.sbom_parser import load_sbom, extract_components
 from agent.osv_client import query_osv
-from agent.risk_engine import compute_risk
-from agent.policy_engine import load_rules, evaluate_policy
+from agent.risk_engine import compute_risk, compute_risk_with_exploitability
+from agent.policy_engine import load_rules, evaluate_policy, evaluate_policy_with_exploitability, get_configured_policy_type
 from agent.reporter import generate_markdown_report, save_outputs
 from agent.remediation_advisor import generate_remediation_summary
 
 
-def save_decision_status(output_dir: str, decision: str, reason: str, risk_summary: dict):
+def save_decision_status(output_dir: str, decision: str, reason: str, risk_summary: dict, policy_type: str = "PRISM_STRICT"):
     """
     Save decision status to a file for CI/CD pipeline to read.
     
     This creates a decision.json file that contains:
     - decision (PASS/WARN/FAIL)
     - reason (explanation)
-    - risk_summary (severity, counts, etc.)
+    - risk_summary (severity, counts, CVSS, exploitability metrics)
+    - policy_type (which policy was used)
     
     Used by GitHub Actions workflow to determine if PR should be blocked.
     
@@ -25,16 +26,20 @@ def save_decision_status(output_dir: str, decision: str, reason: str, risk_summa
         output_dir: Output directory path
         decision: The security decision (PASS, WARN, FAIL)
         reason: Reason for the decision
-        risk_summary: Summary of detected risks
+        risk_summary: Summary of detected risks (includes exploitability)
+        policy_type: Policy type used for evaluation
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
     decision_file = output_path / "decision.json"
     
+    exploitability = risk_summary.get("exploitability", {})
+    
     decision_data = {
         "decision": decision,
         "reason": reason,
+        "policy_type": policy_type,
         "overall_severity": risk_summary.get("overall_severity", "UNKNOWN"),
         "total_vulnerabilities": risk_summary.get("total_vulnerabilities", 0),
         "critical_vulnerabilities": risk_summary.get("critical_vulnerabilities", 0),
@@ -42,18 +47,24 @@ def save_decision_status(output_dir: str, decision: str, reason: str, risk_summa
         "medium_vulnerabilities": risk_summary.get("medium_vulnerabilities", 0),
         "low_vulnerabilities": risk_summary.get("low_vulnerabilities", 0),
         "reachable_vulnerabilities": risk_summary.get("reachable_vulnerabilities", 0),
-        "risk_score": risk_summary.get("risk_score", 0.0)
+        "risk_score": risk_summary.get("risk_score", 0.0),
+        "exploitability": {
+            "truly_exploitable": risk_summary.get("truly_exploitable", 0),
+            "exploitability_ratio": risk_summary.get("exploitability_ratio", 0.0),
+            "avg_confidence": exploitability.get("avg_confidence", 0.0),
+            "max_confidence": exploitability.get("max_confidence", 0.0)
+        }
     }
     
     with open(str(decision_file), 'w') as f:
         json.dump(decision_data, f, indent=2)
     
-    print(f"\n📋 Decision status saved to: {decision_file}")
+    print(f"📋 Decision status saved to: {decision_file}")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PRISM - Pull-Request Integrated Security Mechanism (Objectives 1 & 2)"
+        description="PRISM - Pull-Request Integrated Security Mechanism (Phases 1-3)"
     )
     parser.add_argument("sbom", help="Path to SBOM JSON file")
     parser.add_argument("--rules", help="Path to rules YAML file", default=None)
@@ -62,6 +73,16 @@ def main():
         "--no-ai",
         help="Disable AI-powered remediation (AI is enabled by default)",
         action="store_true"
+    )
+    parser.add_argument(
+        "--diff",
+        help="Path to git diff file for exploitability context analysis",
+        default=None
+    )
+    parser.add_argument(
+        "--policy",
+        help=f"Policy type: CVSS_ONLY, CVSS_STRICT, PRISM, PRISM_STRICT (default: PRISM_STRICT)",
+        default=None
     )
 
     args = parser.parse_args()
@@ -95,7 +116,22 @@ def main():
 
         print()  # Blank line between components
 
-    risk_summary = compute_risk(findings)
+    # Load PR diff if provided
+    pr_diff = None
+    if args.diff and os.path.exists(args.diff):
+        try:
+            with open(args.diff, 'r') as f:
+                pr_diff = f.read()
+            print(f"📝 PR diff loaded from: {args.diff}\n")
+        except Exception as e:
+            print(f"⚠️  Failed to load PR diff: {e}\n")
+
+    # Compute risk with exploitability analysis (Phase 1)
+    print("🔬 PRISM Phase 1: Computing exploitability scores...")
+    risk_summary = compute_risk_with_exploitability(findings, pr_diff)
+    print(f"   ✓ Total vulnerabilities: {risk_summary['total_vulnerabilities']}")
+    print(f"   ✓ Truly exploitable: {risk_summary.get('truly_exploitable', 0)}")
+    print(f"   ✓ Avg. exploitability confidence: {risk_summary['exploitability']['avg_confidence']}\n")
 
     # Generate remediation advice
     print("\n💊 Generating remediation recommendations...")
@@ -121,17 +157,29 @@ def main():
 
     rules = load_rules(args.rules)
 
-    # Use Python-based policy evaluation (OPA removed)
-    decision, reason = evaluate_policy(risk_summary, findings, rules)
+    # PRISM Phase 3: Evaluate policy with exploitability (context-aware)
+    print("🛡️  PRISM Phase 3: Evaluating security policy...")
+    policy_type = args.policy or get_configured_policy_type(rules, cfg)
+    print(f"   Policy Type: {policy_type}")
+    
+    # Use new exploitability-aware policy evaluation
+    decision, reason, policy_details = evaluate_policy_with_exploitability(
+        risk_summary, 
+        risk_summary.get("exploitability", {}).get("findings", findings),
+        rules,
+        policy_type
+    )
+    print(f"   Decision: {decision} - {reason}\n")
 
     markdown = generate_markdown_report(
-        risk_summary, findings, decision, reason, remediations, rules=rules
+        risk_summary, findings, decision, reason, remediations, rules=rules, policy_type=policy_type
     )
 
     report_data = {
         "risk_summary": risk_summary,
         "decision": decision,
         "reason": reason,
+        "policy_type": policy_type,
         "findings": findings,
         "remediations": remediations
     }
@@ -139,7 +187,7 @@ def main():
     save_outputs(args.output, markdown, report_data)
     
     # Save decision status for CI/CD pipeline to read
-    save_decision_status(args.output, decision, reason, risk_summary)
+    save_decision_status(args.output, decision, reason, risk_summary, policy_type)
 
     print(markdown)
 

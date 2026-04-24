@@ -1,6 +1,7 @@
 import yaml
 import re
 from pathlib import Path
+from typing import Tuple
 from agent.config_loader import get_config
 
 _PROJECT_ROOT = Path(__file__).parent.parent
@@ -215,3 +216,194 @@ def evaluate_policy(risk_summary, findings, rules=None):
         return "WARN", f"Found {unknown_count} vulnerabilities without CVSS scores - manual review required"
 
     return "PASS", "No blocking issues"
+
+
+# ============================================================================
+# PRISM Phase 3: Policy Types with Exploitability Support
+# ============================================================================
+
+SUPPORTED_POLICIES = ["CVSS_ONLY", "CVSS_STRICT", "PRISM", "PRISM_STRICT"]
+
+def get_configured_policy_type(rules=None, config=None) -> str:
+    """
+    Get the configured policy type from rules or config.
+
+    Checks in order:
+    1. rules["policy_type"] (from YAML)
+    2. config setting
+    3. Default: PRISM_STRICT
+
+    Args:
+        rules: Rules dict from YAML
+        config: Config object from get_config()
+
+    Returns:
+        Policy type string (CVSS_ONLY, CVSS_STRICT, PRISM, PRISM_STRICT)
+    """
+    # Check rules first
+    if rules and "policy_type" in rules:
+        policy_type = rules["policy_type"].upper()
+        if policy_type in SUPPORTED_POLICIES:
+            return policy_type
+
+    # Check config
+    if config:
+        try:
+            policy_type = config.get_policy_type()
+            if policy_type and policy_type.upper() in SUPPORTED_POLICIES:
+                return policy_type.upper()
+        except Exception:
+            pass
+
+    # Default to PRISM_STRICT
+    return "PRISM_STRICT"
+
+
+def evaluate_cvss_only(risk_summary: dict, findings: list) -> Tuple[str, str]:
+    """
+    CVSS_ONLY Policy: Block if CVSS >= 7
+
+    Conservative CVSS-based approach (legacy).
+    """
+    max_cvss = risk_summary.get("max_cvss", 0.0)
+    severity = risk_summary.get("overall_severity", "UNKNOWN")
+
+    if max_cvss >= 7.0:
+        return "FAIL", f"CVSS threshold exceeded: {max_cvss} >= 7.0 ({severity})"
+    elif max_cvss >= 5.0:
+        return "WARN", f"CVSS warning threshold: {max_cvss} (review recommended)"
+    else:
+        return "PASS", f"CVSS score acceptable: {max_cvss}"
+
+
+def evaluate_cvss_strict(risk_summary: dict, findings: list) -> Tuple[str, str]:
+    """
+    CVSS_STRICT Policy: Block if CVSS >= 5
+
+    Stricter CVSS-based approach.
+    """
+    max_cvss = risk_summary.get("max_cvss", 0.0)
+    severity = risk_summary.get("overall_severity", "UNKNOWN")
+
+    if max_cvss >= 5.0:
+        return "FAIL", f"CVSS threshold exceeded: {max_cvss} >= 5.0 ({severity})"
+    else:
+        return "PASS", f"CVSS score acceptable: {max_cvss}"
+
+
+def evaluate_prism(risk_summary: dict, findings: list) -> Tuple[str, str]:
+    """
+    PRISM Policy: Block if exploitability > 0.65
+
+    Context-aware exploitability-based approach.
+    Only blocks truly exploitable vulnerabilities.
+    """
+    # Count exploitable vulnerabilities
+    exploitable_count = 0
+    max_exploitability = 0.0
+
+    for finding in findings:
+        for vuln in finding.get("vulnerabilities", []):
+            exploitability = vuln.get("exploitability", {})
+            if isinstance(exploitability, dict):
+                confidence = exploitability.get("confidence", 0.0)
+                is_exploitable = exploitability.get("exploitable", False)
+
+                if is_exploitable and confidence > 0.65:
+                    exploitable_count += 1
+                max_exploitability = max(max_exploitability, confidence)
+
+    if exploitable_count > 0:
+        return "FAIL", f"Found {exploitable_count} exploitable vulnerabilities (confidence > 0.65)"
+    else:
+        return "PASS", f"No highly exploitable vulnerabilities detected (max confidence: {max_exploitability:.2f})"
+
+
+def evaluate_prism_strict(risk_summary: dict, findings: list) -> Tuple[str, str]:
+    """
+    PRISM_STRICT Policy: Block if exploitability > 0.45
+
+    Strictest context-aware approach.
+    """
+    # Count exploitable vulnerabilities with stricter threshold
+    exploitable_count = 0
+    moderate_count = 0
+    max_exploitability = 0.0
+
+    for finding in findings:
+        for vuln in finding.get("vulnerabilities", []):
+            exploitability = vuln.get("exploitability", {})
+            if isinstance(exploitability, dict):
+                confidence = exploitability.get("confidence", 0.0)
+
+                max_exploitability = max(max_exploitability, confidence)
+
+                if confidence > 0.65:
+                    exploitable_count += 1
+                elif confidence > 0.45:
+                    moderate_count += 1
+
+    if exploitable_count > 0:
+        return "FAIL", f"Found {exploitable_count} highly exploitable vulnerabilities"
+    elif moderate_count > 0:
+        return "WARN", f"Found {moderate_count} moderately exploitable vulnerabilities (0.45-0.65 confidence)"
+    else:
+        return "PASS", f"No exploitable vulnerabilities detected"
+
+
+def evaluate_policy_with_exploitability(
+    risk_summary: dict,
+    findings: list,
+    rules: dict = None,
+    policy_type: str = None
+) -> Tuple[str, str, dict]:
+    """
+    Evaluate security policy using PRISM phases (exploitability-aware).
+
+    This is the new entry point for policy evaluation that supports
+    both legacy CVSS-only and new PRISM exploitability-based policies.
+
+    Args:
+        risk_summary: Risk summary with max_cvss, overall_severity
+        findings: List of findings with vulnerabilities
+        rules: Optional rules dict from YAML
+        policy_type: Policy type (CVSS_ONLY, CVSS_STRICT, PRISM, PRISM_STRICT)
+                    If None, will be determined from rules/config
+
+    Returns:
+        (decision, reason, policy_details) tuple
+    """
+    # Determine policy type
+    if not policy_type:
+        cfg = get_config() if not rules else None
+        policy_type = get_configured_policy_type(rules, cfg)
+
+    policy_type = policy_type.upper()
+
+    # Check blocked packages first (applies to all policies)
+    if rules:
+        blocked, pkg = check_blocked_packages(findings, rules)
+        if blocked:
+            return "FAIL", f"Blocked package detected: {pkg}", {
+                "policy_type": policy_type,
+                "reason": "blocked_package"
+            }
+
+    # Evaluate based on policy type
+    if policy_type == "CVSS_ONLY":
+        decision, reason = evaluate_cvss_only(risk_summary, findings)
+    elif policy_type == "CVSS_STRICT":
+        decision, reason = evaluate_cvss_strict(risk_summary, findings)
+    elif policy_type == "PRISM":
+        decision, reason = evaluate_prism(risk_summary, findings)
+    elif policy_type == "PRISM_STRICT":
+        decision, reason = evaluate_prism_strict(risk_summary, findings)
+    else:
+        # Fallback to legacy policy
+        decision, reason = evaluate_policy(risk_summary, findings, rules)
+        policy_type = "LEGACY"
+
+    return decision, reason, {
+        "policy_type": policy_type,
+        "reason": reason
+    }

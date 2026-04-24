@@ -35,10 +35,10 @@ def _build_quick_fix_command(component_name, component_ecosystem, plan):
     return f"Upgrade {component_name} to {target_version}"
 
 
-def generate_markdown_report(risk_summary, findings, decision, reason, remediations=None, rules=None):
+def generate_markdown_report(risk_summary, findings, decision, reason, remediations=None, rules=None, policy_type="CVSS_ONLY"):
     lines = []
     lines.append("# PRISM Security Scan Results\n")
-    lines.append("*Objectives 1 & 2: SBOM Generation, OSV Scanning, AI Remediation, Policy Gates*\n")
+    lines.append("*Phases 1–3: Exploitability Analysis, Policy Enforcement, AI Remediation*\n")
 
     # Decision indicator
     decision_symbol = {
@@ -48,10 +48,25 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
     }.get(decision, "?")
 
     lines.append(f"**Decision:** {decision_symbol} **{decision}**  ")
+    lines.append(f"**Policy Type:** {policy_type}  ")
     lines.append(f"**Overall Severity:** {risk_summary['overall_severity']}  ")
     lines.append(f"**Risk Score:** {risk_summary.get('risk_score', 'N/A')} / 10  ")
     lines.append(f"**Max CVSS:** {risk_summary['max_cvss']}  ")
     lines.append(f"**Total Vulnerabilities:** {risk_summary['total_vulnerabilities']}  \n")
+
+    # Add exploitability summary if available
+    exploitability = risk_summary.get("exploitability", {})
+    if exploitability:
+        lines.append("---\n")
+        lines.append("## PRISM Exploitability Analysis (Phase 1)\n")
+        lines.append(f"- **Truly Exploitable:** {risk_summary.get('truly_exploitable', 0)} / {exploitability.get('total_assessed', 0)}")
+        lines.append(f"- **Avg. Confidence:** {exploitability.get('avg_confidence', 0)}")
+        lines.append(f"- **Max Confidence:** {exploitability.get('max_confidence', 0)}")
+        if exploitability.get('by_severity'):
+            lines.append("- **By Severity:**")
+            for severity, count in exploitability['by_severity'].items():
+                lines.append(f"  - {severity}: {count}")
+        lines.append("")
 
     lines.append("---\n")
     lines.append("## Vulnerable Components\n")
@@ -106,11 +121,25 @@ def generate_markdown_report(risk_summary, findings, decision, reason, remediati
                     severity = cvss_to_severity(cvss)
                     vuln_line += f" (CVSS: {cvss}, Severity: {severity})"
 
+                # Add exploitability info
+                exploitability_data = vuln.get("exploitability", {})
+                if exploitability_data:
+                    is_exploitable = exploitability_data.get("exploitable", False)
+                    confidence = exploitability_data.get("confidence", 0.0)
+                    status = "🔴 EXPLOITABLE" if is_exploitable else "🟢 NOT EXPLOITABLE"
+                    vuln_line += f" | {status} (confidence: {confidence})"
+
                 # Add source info
                 source = vuln.get("source", "OSV")
                 vuln_line += f" [Source: {source}]"
 
                 lines.append(vuln_line)
+                
+                # Add exploitability evidence if available
+                if exploitability_data and exploitability_data.get("evidence"):
+                    lines.append("  **Evidence:**")
+                    for evidence_item in exploitability_data["evidence"]:
+                        lines.append(f"  - {evidence_item}")
 
     if not any(f["vulnerabilities"] for f in findings):
         lines.append("\nNo vulnerabilities detected.  ")
