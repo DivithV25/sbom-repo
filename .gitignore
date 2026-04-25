@@ -43,6 +43,9 @@ vulnscan-output/
 my-scan-results/
 test_blocked.json
 
+# PRISM cache (vulnerability query results)
+.prism_cache/
+
 # Temporary files
 *.log
 *.tmp

@@ -4,6 +4,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+# Cancel previous workflow runs for the same PR to prevent conflicts
+concurrency:
+  group: security-scan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: write
@@ -92,6 +97,34 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
+
+            // First, delete any existing PRISM reviews to avoid duplicates
+            try {
+              const { data: existingReviews } = await github.rest.pulls.listReviews({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.issue.number
+              });
+
+              for (const review of existingReviews) {
+                if (review.user.login === 'github-actions[bot]' && 
+                    review.body?.includes('PRISM')) {
+                  console.log(`🗑️ Removing previous PRISM review #${review.id} to avoid duplicates`);
+                  try {
+                    await github.rest.pulls.deleteReview({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      pull_number: context.issue.number,
+                      review_id: review.id
+                    });
+                  } catch (err) {
+                    console.warn(`⚠️ Could not delete review #${review.id}:`, err.message);
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn('⚠️ Could not fetch existing reviews:', err.message);
+            }
 
             // Read the main report
             let comment = '## 🔐 PRISM Security Scan Results\n\n';

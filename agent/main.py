@@ -66,6 +66,13 @@ def main():
 
     args = parser.parse_args()
 
+    # IMPORTANT: Cache invalidation happens in osv_client.query_osv()
+    # When dependency manifests (package.json, requirements.txt, etc.) change,
+    # the .prism_cache directory is automatically cleared to prevent stale
+    # vulnerability data. This ensures accurate results even when running
+    # multiple scans on the same PR with different package versions.
+    # See: agent/osv_client.py::_invalidate_cache_if_needed()
+
     # Check AI configuration
     from agent.config_loader import get_config
     cfg = get_config()
