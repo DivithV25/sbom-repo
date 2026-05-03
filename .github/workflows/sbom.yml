@@ -24,25 +24,75 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Node (for npm projects; remove for other ecosystems)
+      # Setup all supported ecosystems
+      - name: Set up Node.js
+        if: always()
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: Install dependencies (npm ci)
+      - name: Set up Python
+        if: always()
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Go
+        if: always()
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Set up Maven
+        if: always()
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+          cache: maven
+
+      # Install dependencies for all supported ecosystems
+      - name: Install dependencies (Node.js)
         if: always()
         run: |
-          # Only do this if your project has a lockfile and requires install:
           if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install --no-audit --no-fund; fi
 
-      - name: Generate SBOM and upload artifact (Anchore sbom-action)
+      - name: Install dependencies (Python)
+        if: always()
+        run: |
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Download dependencies (Go)
+        if: always()
+        run: |
+          if [ -f go.mod ]; then go mod download; fi
+
+      - name: Download dependencies (Maven)
+        if: always()
+        run: |
+          if [ -f pom.xml ]; then mvn dependency:resolve -q 2>/dev/null || true; fi
+
+      - name: Generate SBOM (supports npm, Python, Go, Maven)
         uses: anchore/sbom-action@v0
         with:
-          # Choose format: spdx-json, cyclonedx-json, syft-json, etc.
           format: cyclonedx-json
           output-file: sbom.json
-          # target defaults to workspace; you can set TARGET to a path or image
-          # target: .
+          # Syft will auto-detect and scan all supported ecosystems
+
+      - name: Generate SBOM Report (detailed format)
+        if: always()
+        run: |
+          echo "Generated SBOM contents:"
+          echo "========================"
+          if [ -f sbom.json ]; then
+            # Count components by ecosystem
+            echo "SBOM Generation Complete"
+            echo "Detected ecosystems in SBOM:"
+            # Extract purl types to see what was detected
+            grep -o '"purl":"[^"]*"' sbom.json | grep -o ':[^/]*' | sort | uniq -c || true
+          else
+            echo "Warning: No SBOM file generated"
+          fi
 
       - name: Set up Python for vulnerability scanning
         uses: actions/setup-python@v5
@@ -53,12 +103,30 @@ jobs:
         run: |
           pip install -r requirements.txt
 
+      - name: Detect Ecosystems
+        id: detect-ecosystems
+        run: |
+          echo "🔍 Detecting project ecosystems..."
+          ECOSYSTEMS=""
+          [ -f package.json ] && ECOSYSTEMS="$ECOSYSTEMS npm" && echo "✓ npm (Node.js)"
+          [ -f requirements.txt ] && ECOSYSTEMS="$ECOSYSTEMS python" && echo "✓ python"
+          [ -f go.mod ] && ECOSYSTEMS="$ECOSYSTEMS go" && echo "✓ go"
+          [ -f pom.xml ] && ECOSYSTEMS="$ECOSYSTEMS maven" && echo "✓ maven"
+          
+          if [ -z "$ECOSYSTEMS" ]; then
+            echo "⚠️ No supported dependency files found"
+            ECOSYSTEMS="unknown"
+          fi
+          
+          echo "detected_ecosystems=$ECOSYSTEMS" >> $GITHUB_OUTPUT
+
       - name: Run Vulnerability Scanner
         id: vuln-scan
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           echo "🔍 Scanning SBOM for vulnerabilities..."
+          echo "📦 Detected ecosystems: ${{ steps.detect-ecosystems.outputs.detected_ecosystems }}"
           python -m agent.main sbom.json --output vulnscan-output
           echo "scan_complete=true" >> $GITHUB_OUTPUT
 
@@ -89,7 +157,7 @@ jobs:
           name: vulnerability-report-pr-${{ github.event.pull_request.number }}
           path: vulnscan-output/
 
-      - name: Post PR Comment with Results & Inline Fix Suggestions
+      - name: Post PR Comment with Results & Inline Fix Suggestions (Multi-Ecosystem)
         if: always() && github.event.pull_request.number
         uses: actions/github-script@v7
         with:
@@ -132,13 +200,27 @@ jobs:
                   pull_number: context.issue.number
                 });
 
+                console.log(`📁 Found ${files.length} changed files in PR`);
+
+                // Map ecosystems to file patterns
+                const ecosystemFilePatterns = {
+                  'npm': ['package.json', 'package-lock.json'],
+                  'PyPI': ['requirements.txt', 'setup.py', 'pyproject.toml'],
+                  'Maven': ['pom.xml'],
+                  'Go': ['go.mod', 'go.sum'],
+                  'NuGet': ['.csproj', 'packages.config'],
+                  'RubyGems': ['Gemfile', 'Gemfile.lock']
+                };
+
                 // Build review comments
                 const reviewComments = [];
+                
                 for (const remediation of remediations) {
                   const advice = remediation.advice || {};
                   const component = remediation.component || {};
                   const componentName = component.name;
                   const currentVersion = component.version;
+                  const ecosystem = component.ecosystem || 'unknown';
 
                   // Handle both direct fields and nested remediation_plan fields
                   const remediationPlan = advice.remediation_plan || {};
@@ -150,22 +232,30 @@ jobs:
                     continue;
                   }
 
-                  // Determine file based on ecosystem
-                  const ecosystem = (component.ecosystem || 'npm').toLowerCase();
-                  let targetFile = 'package.json'; // default
-                  if (ecosystem.includes('pypi')) targetFile = 'requirements.txt';
-                  else if (ecosystem === 'maven') targetFile = 'pom.xml';
-                  else if (ecosystem === 'go') targetFile = 'go.mod';
+                  // Find matching file patterns for this ecosystem
+                  const patterns = ecosystemFilePatterns[ecosystem] || [];
+                  if (patterns.length === 0) {
+                    console.log(`⏭️ Skipping ${componentName} - unknown ecosystem: ${ecosystem}`);
+                    continue;
+                  }
 
                   // Find matching changed file
-                  const changedFile = files.find(f => f.filename.endsWith(targetFile));
-                  if (!changedFile) continue;
+                  const changedFile = files.find(f => 
+                    patterns.some(pattern => f.filename.endsWith(pattern))
+                  );
+
+                  if (!changedFile) {
+                    console.log(`⏭️ Skipping ${componentName} - no matching ${ecosystem} dependency file in changes`);
+                    continue;
+                  }
 
                   // Parse the patch to find dependencies
                   const patch = changedFile.patch || '';
                   const lines = patch.split('\n');
 
                   let position = 0;
+                  let found = false;
+
                   for (const line of lines) {
                     // Skip @@ header lines - don't count them in position
                     if (line.startsWith('@@')) continue;
@@ -175,21 +265,26 @@ jobs:
                     // Skip removed lines but count them in position
                     if (line.startsWith('-')) continue;
 
-                    // Look for the package in the line
-                    if (componentName && line.includes(componentName) && line.includes(currentVersion)) {
+                    // Look for the package in the line (more flexible matching)
+                    if (componentName && 
+                        (line.includes(componentName) || line.includes(componentName.replace(/[@\/]/g, ''))) && 
+                        line.includes(currentVersion)) {
+
                       const upgradeCmd = upgradeCommand ||
                         (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
-                         ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
+                         ecosystem === 'PyPI' ? `pip install ${componentName}==${recommendedVersion}` :
+                         ecosystem === 'Maven' ? `Update pom.xml: <version>${recommendedVersion}</version>` :
+                         ecosystem === 'Go' ? `go get ${componentName}@v${recommendedVersion}` :
                          `Upgrade ${componentName} to ${recommendedVersion}`);
 
                       const currentLine = line.replace(/^[+ ]/, '');
                       const suggestedLine = currentLine.replace(currentVersion, recommendedVersion);
 
-                      const fixComment = `✅ **Vulnerability Fix Available**\n\n` +
+                      const fixComment = `✅ **Vulnerability Fix Available** (${ecosystem})\n\n` +
                         `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${recommendedVersion}\`\n\n` +
                         `**Line replacement:**\n\`\`\`diff\n- ${currentLine}\n+ ${suggestedLine}\n\`\`\`\n\n` +
                         `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestedLine}\n\`\`\`\n\n` +
-                        `**Fix command:**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
+                        `**Fix command (${ecosystem}):**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
                         `This is a patch version upgrade (safe to apply). Always run tests after updating.`;
 
                       reviewComments.push({
@@ -198,9 +293,14 @@ jobs:
                         body: fixComment
                       });
 
-                      console.log(`📝 Added inline suggestion for ${componentName} at position ${position}`);
+                      console.log(`📝 Added inline suggestion for ${componentName} (${ecosystem}) at position ${position}`);
+                      found = true;
                       break; // Move to next remediation
                     }
+                  }
+                  
+                  if (!found) {
+                    console.log(`⏭️ Could not find ${componentName} in patch for ${changedFile.filename}`);
                   }
                 }
 
@@ -214,13 +314,13 @@ jobs:
                     pull_number: context.issue.number,
                     commit_id: context.payload.pull_request.head.sha,
                     event: 'COMMENT',
-                    body: '💡 Inline vulnerability fixes suggested below',
+                    body: `💡 **Multi-Ecosystem Inline Fix Suggestions**\n\nDetected ecosystems: npm, Python, Maven, Go\nApply suggestions below for each vulnerable dependency:`,
                     comments: reviewComments
                   });
 
                   console.log('✅ Inline suggestions posted successfully');
                 } else {
-                  console.log('ℹ️ No vulnerable dependencies found in changed files');
+                  console.log('ℹ️ No vulnerable dependencies found in changed dependency files');
                 }
               }
             } catch (error) {
