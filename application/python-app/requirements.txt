@@ -2,7 +2,7 @@
 # These dependencies will be scanned for vulnerabilities
 
 Flask==2.0.1
-requests==2.26.0
+requests==2.33.0
 Werkzeug==2.0.1
 Jinja2==3.0.1
 click==8.0.1
