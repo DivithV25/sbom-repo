@@ -24,43 +24,30 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Node (for npm projects; remove for other ecosystems)
-        uses: actions/setup-node@v4
-        with:
-          node-version: 18
-
-      - name: Install dependencies (npm ci)
-        if: always()
-        run: |
-          # Only do this if your project has a lockfile and requires install:
-          if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install --no-audit --no-fund; fi
-
-      - name: Generate SBOM and upload artifact (Anchore sbom-action)
-        uses: anchore/sbom-action@v0
-        with:
-          # Choose format: spdx-json, cyclonedx-json, syft-json, etc.
-          format: cyclonedx-json
-          output-file: sbom.json
-          # target defaults to workspace; you can set TARGET to a path or image
-          # target: .
-
-      - name: Set up Python for vulnerability scanning
+      - name: Set up Python for multi-language scanning
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Install Python dependencies
+      - name: Install PRISM Dependencies
         run: |
           pip install -r requirements.txt
 
-      - name: Run Vulnerability Scanner
+      - name: Run Multi-Language SBOM Generation & Vulnerability Scan
         id: vuln-scan
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          echo "🔍 Scanning SBOM for vulnerabilities..."
-          python -m agent.main sbom.json --output vulnscan-output
+          echo "🔍 Scanning applications for dependencies (Node.js, Python, Go, Maven)..."
+          # Use new multi-language scanner with --scan mode
+          # This auto-detects: package.json, requirements.txt, go.mod, pom.xml
+          python -m agent.main --scan ./application --output vulnscan-output
           echo "scan_complete=true" >> $GITHUB_OUTPUT
+          
+          # Also generate legacy SBOM artifact for compatibility
+          if [ -d vulnscan-output/sboms ]; then
+            cp vulnscan-output/sboms/sbom_combined_all_languages.json sbom.json 2>/dev/null || true
+          fi
 
       - name: Display Vulnerability Report
         if: always()
@@ -68,10 +55,22 @@ jobs:
           echo "========================================="
           echo "🔐 PRISM SECURITY SCAN RESULTS"
           echo "========================================="
+          echo ""
+          echo "📦 Detected Manifests & SBOMs:"
+          if [ -d vulnscan-output/sboms ]; then
+            ls -lh vulnscan-output/sboms/ | awk '{if(NR>1) print "   - " $9 " (" $5 ")"}'
+          fi
+          echo ""
           if [ -f vulnscan-output/pr_comment.md ]; then
             cat vulnscan-output/pr_comment.md
           else
             echo "⚠️ No report generated"
+          fi
+          echo ""
+          echo "📊 Scan Summary:"
+          if [ -f vulnscan-output/scan_results.json ]; then
+            echo "Multi-language scan results:"
+            jq '.' vulnscan-output/scan_results.json 2>/dev/null || cat vulnscan-output/scan_results.json
           fi
           echo "========================================="
 
