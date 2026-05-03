@@ -131,6 +131,9 @@ jobs:
                   pull_number: context.issue.number
                 });
 
+                console.log(`📋 Changed files in PR:`);
+                files.forEach(f => console.log(`   - ${f.filename}`));
+
                 // Build review comments
                 const reviewComments = [];
                 for (const remediation of remediations) {
@@ -149,36 +152,63 @@ jobs:
                     continue;
                   }
 
+                  console.log(`🔍 Processing remediation for: ${componentName}@${currentVersion} → ${recommendedVersion}`);
+
                   // Determine file based on ecosystem
                   const ecosystem = (component.ecosystem || 'npm').toLowerCase();
-                  let targetFile = 'package.json'; // default
-                  if (ecosystem.includes('pypi')) targetFile = 'requirements.txt';
-                  else if (ecosystem === 'maven') targetFile = 'pom.xml';
-                  else if (ecosystem === 'go') targetFile = 'go.mod';
+                  let targetFiles = ['package.json']; // default
+                  if (ecosystem.includes('pypi')) targetFiles = ['requirements.txt'];
+                  else if (ecosystem === 'maven') targetFiles = ['pom.xml'];
+                  else if (ecosystem === 'go') targetFiles = ['go.mod'];
 
-                  // Find matching changed file
-                  const changedFile = files.find(f => f.filename.endsWith(targetFile));
-                  if (!changedFile) continue;
+                  console.log(`   Ecosystem: ${ecosystem}, Looking for: ${targetFiles.join(', ')}`);
+
+                  // Find matching changed file - search all directories
+                  let changedFile = files.find(f => targetFiles.some(tf => f.filename.endsWith(tf)));
+                  if (!changedFile) {
+                    console.log(`ℹ️ No changed ${targetFiles.join(' or ')} files found for ${componentName}`);
+                    continue;
+                  }
+                  
+                  console.log(`   ✅ Found file: ${changedFile.filename}`);
 
                   // Parse the patch to find dependencies
                   const patch = changedFile.patch || '';
                   const lines = patch.split('\n');
 
                   let position = 0;
+                  let found = false;
+                  
                   for (const line of lines) {
                     // Skip @@ header lines - don't count them in position
-                    if (line.startsWith('@@')) continue;
+                    if (line.startsWith('@@')) {
+                      position = 0; // Reset position for new hunk
+                      continue;
+                    }
 
                     position++;
 
                     // Skip removed lines but count them in position
                     if (line.startsWith('-')) continue;
 
-                    // Look for the package in the line
-                    if (componentName && line.includes(componentName) && line.includes(currentVersion)) {
+                    // Look for the package in the line - support different formats
+                    const searchPatterns = [
+                      `"${componentName}"`,  // npm: "package-name"
+                      `${componentName}==`,  // python: package==version
+                      `<artifactId>${componentName}</artifactId>`, // maven: <artifactId>
+                      `github.com/${componentName}`, // go: module path
+                      componentName  // generic fallback
+                    ];
+                    
+                    const lineMatches = searchPatterns.some(pattern => line.includes(pattern));
+                    const versionMatches = line.includes(currentVersion);
+
+                    if (lineMatches && versionMatches) {
                       const upgradeCmd = upgradeCommand ||
                         (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
                          ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
+                         ecosystem === 'maven' ? `Update pom.xml dependency version to ${recommendedVersion}` :
+                         ecosystem === 'go' ? `go get ${componentName}@v${recommendedVersion}` :
                          `Upgrade ${componentName} to ${recommendedVersion}`);
 
                       const currentLine = line.replace(/^[+ ]/, '');
@@ -197,9 +227,14 @@ jobs:
                         body: fixComment
                       });
 
-                      console.log(`📝 Added inline suggestion for ${componentName} at position ${position}`);
+                      console.log(`📝 Added inline suggestion for ${componentName} in ${changedFile.filename} at position ${position}`);
+                      found = true;
                       break; // Move to next remediation
                     }
+                  }
+                  
+                  if (!found) {
+                    console.log(`⚠️ Could not locate ${componentName}@${currentVersion} in patch for ${changedFile.filename}`);
                   }
                 }
 
