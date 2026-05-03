@@ -11,7 +11,7 @@
     "express": "4.20.0",
     "lodash": "4.18.0",
     "axios": "1.15.0",
-    "minimist": "0.0.8"
+    "minimist": "1.2.6"
   },
   "devDependencies": {
     "jest": "27.0.0"
