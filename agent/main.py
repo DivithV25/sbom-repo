@@ -8,6 +8,7 @@ from agent.risk_engine import compute_risk
 from agent.policy_engine import load_rules, evaluate_policy
 from agent.reporter import generate_markdown_report, save_outputs
 from agent.remediation_advisor import generate_remediation_summary
+from agent.multi_language_scanner import ManifestDetector, DependencyParser, SBOMGenerator
 
 
 def save_decision_status(output_dir: str, decision: str, reason: str, risk_summary: dict):
@@ -53,9 +54,28 @@ def save_decision_status(output_dir: str, decision: str, reason: str, risk_summa
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PRISM - Pull-Request Integrated Security Mechanism (Objectives 1 & 2)"
+        description="PRISM - Pull-Request Integrated Security Mechanism (Objectives 1 & 2) with Multi-Language Support",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Scan SBOM file directly (legacy)
+  python -m agent.main sbom.json
+
+  # Auto-detect and scan Node.js app
+  python -m agent.main --scan ./application/nodejs-app
+
+  # Auto-detect and scan Python app
+  python -m agent.main --scan ./application/python-app
+
+  # Auto-detect all manifests in directory tree
+  python -m agent.main --scan ./application
+
+  # Scan with custom policy
+  python -m agent.main --scan ./application --rules policies/custom_policy.yaml
+        """
     )
-    parser.add_argument("sbom", help="Path to SBOM JSON file")
+    parser.add_argument("sbom", nargs="?", help="Path to SBOM JSON file (optional if using --scan)")
+    parser.add_argument("--scan", help="Auto-detect manifests in directory and generate SBOM", default=None)
     parser.add_argument("--rules", help="Path to rules YAML file", default=None)
     parser.add_argument("--output", help="Output directory", default="output")
     parser.add_argument(
@@ -65,6 +85,92 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Validate input
+    if args.scan:
+        # Multi-language manifest scanning mode
+        if not os.path.isdir(args.scan):
+            print(f"❌ Error: Directory not found: {args.scan}")
+            return
+
+        print("=" * 70)
+        print("🔍 PRISM Multi-Language Security Scanner")
+        print("=" * 70)
+
+        print(f"\n[Step 1/3] Detecting manifests in: {args.scan}\n")
+
+        manifests = ManifestDetector.detect_manifests(args.scan)
+
+        if not manifests:
+            print("❌ No manifest files found in:", args.scan)
+            return
+
+        all_components = []
+        sbom_files = []
+
+        print(f"\n[Step 2/3] Parsing manifests...\n")
+
+        for ecosystem, files in manifests.items():
+            for manifest_path in files:
+                print(f"📦 Parsing {ecosystem}: {os.path.basename(manifest_path)}")
+
+                detected_ecosystem, components = DependencyParser.parse_manifest(manifest_path)
+
+                if components:
+                    all_components.extend(components)
+
+                    # Generate SBOM for this manifest
+                    sbom = SBOMGenerator.generate_sbom(
+                        components,
+                        metadata={
+                            "name": f"app-{ecosystem}",
+                            "version": "1.0.0",
+                            "description": f"{ecosystem.upper()} application dependencies"
+                        }
+                    )
+
+                    # Save individual SBOM
+                    output_path = Path(args.output) / "sboms"
+                    output_path.mkdir(parents=True, exist_ok=True)
+
+                    sbom_filename = f"sbom_{ecosystem}_{Path(manifest_path).stem}.json"
+                    sbom_path = output_path / sbom_filename
+                    SBOMGenerator.save_sbom(sbom, str(sbom_path))
+                    sbom_files.append(str(sbom_path))
+
+                    print(f"   ✅ Found {len(components)} dependencies\n")
+
+        if not all_components:
+            print("❌ No dependencies found in manifests")
+            return
+
+        print(f"✅ Total dependencies extracted: {len(all_components)}\n")
+
+        # Generate combined SBOM
+        combined_sbom = SBOMGenerator.generate_sbom(
+            all_components,
+            metadata={
+                "name": "multi-language-app",
+                "version": "1.0.0",
+                "description": "Multi-language application (Node.js, Python, Go, Maven)"
+            }
+        )
+
+        combined_sbom_path = Path(args.output) / "sboms" / "sbom_combined_all_languages.json"
+        SBOMGenerator.save_sbom(combined_sbom, str(combined_sbom_path))
+
+        # Use combined SBOM for vulnerability scanning
+        sbom_json = combined_sbom
+        components = all_components
+
+    elif args.sbom:
+        # Legacy SBOM file mode
+        sbom_json = load_sbom(args.sbom)
+        components = extract_components(sbom_json)
+    else:
+        print("❌ Error: Provide either --scan <directory> or <sbom_file>")
+        parser.print_help()
+        return
 
     # IMPORTANT: Cache invalidation happens in osv_client.query_osv()
     # When dependency manifests (package.json, requirements.txt, etc.) change,
@@ -80,10 +186,6 @@ def main():
 
     if use_ai:
         print("🤖 AI-powered smart remediation: ENABLED\n")
-
-    # Load SBOM and extract components
-    sbom_json = load_sbom(args.sbom)
-    components = extract_components(sbom_json)
 
     findings = []
 
