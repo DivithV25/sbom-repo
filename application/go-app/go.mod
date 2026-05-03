@@ -12,3 +12,8 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/stretchr/testify v1.8.2
 )
+
+require (
+    golang.org/x/crypto v0.0.0-20201203163018-be400aefbc4c
+    github.com/dgrijalva/jwt-go v3.2.0+incompatible
+)
