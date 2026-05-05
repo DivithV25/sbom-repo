@@ -1,0 +1,12 @@
+{
+  "decision": "PASS",
+  "reason": "No blocking issues",
+  "overall_severity": "UNKNOWN",
+  "total_vulnerabilities": 0,
+  "critical_vulnerabilities": 0,
+  "high_vulnerabilities": 0,
+  "medium_vulnerabilities": 0,
+  "low_vulnerabilities": 0,
+  "reachable_vulnerabilities": 0,
+  "risk_score": 0.0
+}

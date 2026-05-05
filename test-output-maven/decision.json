@@ -1,0 +1,12 @@
+{
+  "decision": "FAIL",
+  "reason": "Severity threshold exceeded: CRITICAL vulnerabilities found (7 total)",
+  "overall_severity": "CRITICAL",
+  "total_vulnerabilities": 7,
+  "critical_vulnerabilities": 0,
+  "high_vulnerabilities": 0,
+  "medium_vulnerabilities": 0,
+  "low_vulnerabilities": 0,
+  "reachable_vulnerabilities": 0,
+  "risk_score": 10.0
+}

@@ -288,13 +288,23 @@ jobs:
                   let position = 0;
                   let found = false;
 
-                  for (const line of lines) {
+                  // For Maven pom.xml, we need to handle multi-line format:
+                  // <artifactId>artifact-name</artifactId>
+                  // ...
+                  // <version>X.Y.Z</version>
+                  
+                  for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+                    
                     // Skip @@ header lines - don't count them in position
                     if (line.startsWith('@@')) continue;
 
-                    position++;
+                    // Only count added and context lines for position (not removed lines)
+                    if (!line.startsWith('-')) {
+                      position++;
+                    }
 
-                    // Skip removed lines but count them in position
+                    // Skip processing removed lines
                     if (line.startsWith('-')) continue;
 
                     // Build potential package name patterns for matching
@@ -320,12 +330,48 @@ jobs:
                       pattern && line.includes(pattern)
                     );
                     
-                    if (packageFound && line.includes(currentVersion)) {
+                    // Handle Maven pom.xml format (package on one line, version on another)
+                    if (ecosystem === 'maven' && packageFound) {
+                      // Look for version in following lines (within 8 lines)
+                      let versionPos = position;
+                      for (let j = i + 1; j < Math.min(i + 8, lines.length); j++) {
+                        // Count position for non-removed lines
+                        if (!lines[j].startsWith('@@') && !lines[j].startsWith('-')) {
+                          versionPos++;
+                        }
+                        
+                        if (lines[j].includes(currentVersion)) {
+                          const versionLine = lines[j].replace(/^[+ ]/, '');
+                          const suggestedVersionLine = versionLine.replace(currentVersion, recommendedVersion);
+                          const displayEcosystem = getDisplayName(ecosystem);
 
+                          const upgradeCmd = upgradeCommand || `Update pom.xml: <version>${recommendedVersion}</version>`;
+
+                          const fixComment = `✅ **Vulnerability Fix Available** (${displayEcosystem})\n\n` +
+                            `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${recommendedVersion}\`\n\n` +
+                            `**Line replacement:**\n\`\`\`diff\n- ${versionLine}\n+ ${suggestedVersionLine}\n\`\`\`\n\n` +
+                            `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestedVersionLine}\n\`\`\`\n\n` +
+                            `**Fix command (${displayEcosystem}):**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
+                            `This is a patch version upgrade (safe to apply). Always run tests after updating.`;
+
+                          reviewComments.push({
+                            path: changedFile.filename,
+                            position: versionPos,
+                            body: fixComment
+                          });
+
+                          console.log(`📝 Added Maven inline suggestion for ${componentName} at position ${versionPos}`);
+                          found = true;
+                          break;
+                        }
+                      }
+                      if (found) break;
+                    }
+                    // Standard format: package and version on same line (npm, pypi, go)
+                    else if (packageFound && line.includes(currentVersion)) {
                       const upgradeCmd = upgradeCommand ||
                         (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
                          ecosystem === 'pypi' ? `pip install ${componentName}==${recommendedVersion}` :
-                         ecosystem === 'maven' ? `Update pom.xml: <version>${recommendedVersion}</version>` :
                          ecosystem === 'go' ? `go get ${componentName}@v${recommendedVersion}` :
                          `Upgrade ${componentName} to ${recommendedVersion}`);
 
@@ -348,12 +394,12 @@ jobs:
 
                       console.log(`📝 Added inline suggestion for ${componentName} (${ecosystem}) at position ${position}`);
                       found = true;
-                      break; // Move to next remediation
+                      break;
                     }
                   }
                   
                   if (!found) {
-                    console.log(`⏭️ Could not find ${componentName} in patch for ${changedFile.filename}`);
+                    console.log(`⏭️ Could not find version line for ${componentName} in patch for ${changedFile.filename}`);
                   }
                 }
 

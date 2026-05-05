@@ -1,0 +1,21 @@
+{
+  "risk_summary": {
+    "max_cvss": 0.0,
+    "overall_severity": "UNKNOWN",
+    "total_vulnerabilities": 0,
+    "risk_score": 0.0
+  },
+  "decision": "PASS",
+  "reason": "No blocking issues",
+  "findings": [
+    {
+      "component": {
+        "name": "log4j-core",
+        "version": "2.14.1",
+        "ecosystem": null
+      },
+      "vulnerabilities": []
+    }
+  ],
+  "remediations": []
+}
