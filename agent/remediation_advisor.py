@@ -325,15 +325,21 @@ def generate_remediation_summary(findings: List[Dict[str, Any]]) -> List[Dict[st
             reachability
         )
 
-        # Add component info
-        advice["component"] = component["name"]
-        advice["current_version"] = component["version"]
-        advice["vulnerability_count"] = len(vulnerabilities)
+        # Add component info as an object (for proper GitHub Actions parsing)
+        remediation = {
+            "component": {
+                "name": component["name"],
+                "version": component["version"],
+                "ecosystem": component.get("ecosystem", "unknown")
+            },
+            "advice": advice,
+            "vulnerability_count": len(vulnerabilities)
+        }
 
-        remediations.append(advice)
+        remediations.append(remediation)
 
     # Sort by priority
     priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "unknown": 4}
-    remediations.sort(key=lambda r: (priority_order.get(r["priority"], 99), -r.get("max_cvss", 0)))
+    remediations.sort(key=lambda r: (priority_order.get(r["advice"]["priority"], 99), -r["advice"].get("max_cvss", 0)))
 
     return remediations

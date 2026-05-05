@@ -202,14 +202,43 @@ jobs:
 
                 console.log(`📁 Found ${files.length} changed files in PR`);
 
-                // Map ecosystems to file patterns
+                // Map ecosystems to file patterns (with case-insensitive matching)
                 const ecosystemFilePatterns = {
                   'npm': ['package.json', 'package-lock.json'],
-                  'PyPI': ['requirements.txt', 'setup.py', 'pyproject.toml'],
-                  'Maven': ['pom.xml'],
-                  'Go': ['go.mod', 'go.sum'],
-                  'NuGet': ['.csproj', 'packages.config'],
-                  'RubyGems': ['Gemfile', 'Gemfile.lock']
+                  'pypi': ['requirements.txt', 'setup.py', 'pyproject.toml'],
+                  'maven': ['pom.xml'],
+                  'go': ['go.mod', 'go.sum'],
+                  'nuget': ['.csproj', 'packages.config'],
+                  'rubygems': ['Gemfile', 'Gemfile.lock']
+                };
+
+                // Normalize ecosystem function (handles capitalization variants)
+                const normalizeEcosystem = (eco) => {
+                  if (!eco) return 'unknown';
+                  const normalized = eco.toLowerCase().replace(/\s+/g, '');
+                  
+                  // Map common variants
+                  if (normalized === 'pypi' || normalized === 'python' || normalized === 'pip') return 'pypi';
+                  if (normalized === 'maven' || normalized === 'java') return 'maven';
+                  if (normalized === 'golang' || normalized === 'go') return 'go';
+                  if (normalized === 'npm' || normalized === 'nodejs') return 'npm';
+                  if (normalized === 'nuget' || normalized === 'dotnet') return 'nuget';
+                  if (normalized === 'rubygems' || normalized === 'ruby') return 'rubygems';
+                  
+                  return normalized;
+                };
+
+                // Function to convert normalized ecosystem to display name
+                const getDisplayName = (ecosystem) => {
+                  const displayNames = {
+                    'npm': 'npm',
+                    'pypi': 'PyPI',
+                    'maven': 'Maven',
+                    'go': 'Go',
+                    'nuget': 'NuGet',
+                    'rubygems': 'RubyGems'
+                  };
+                  return displayNames[ecosystem] || ecosystem;
                 };
 
                 // Build review comments
@@ -220,7 +249,8 @@ jobs:
                   const component = remediation.component || {};
                   const componentName = component.name;
                   const currentVersion = component.version;
-                  const ecosystem = component.ecosystem || 'unknown';
+                  const rawEcosystem = component.ecosystem || 'unknown';
+                  const ecosystem = normalizeEcosystem(rawEcosystem);
 
                   // Handle both direct fields and nested remediation_plan fields
                   const remediationPlan = advice.remediation_plan || {};
@@ -232,10 +262,12 @@ jobs:
                     continue;
                   }
 
+                  console.log(`📦 Processing: ${componentName} (ecosystem: ${rawEcosystem} -> normalized: ${ecosystem})`);
+
                   // Find matching file patterns for this ecosystem
                   const patterns = ecosystemFilePatterns[ecosystem] || [];
                   if (patterns.length === 0) {
-                    console.log(`⏭️ Skipping ${componentName} - unknown ecosystem: ${ecosystem}`);
+                    console.log(`⏭️ Skipping ${componentName} - unknown ecosystem: ${rawEcosystem} (normalized: ${ecosystem})`);
                     continue;
                   }
 
@@ -265,26 +297,47 @@ jobs:
                     // Skip removed lines but count them in position
                     if (line.startsWith('-')) continue;
 
-                    // Look for the package in the line (more flexible matching)
-                    if (componentName && 
-                        (line.includes(componentName) || line.includes(componentName.replace(/[@\/]/g, ''))) && 
-                        line.includes(currentVersion)) {
+                    // Build potential package name patterns for matching
+                    let packagePatterns = [componentName];
+                    
+                    // For Maven packages like org.apache.commons:commons-lang3, try just the artifact part
+                    if (ecosystem === 'maven' && componentName.includes(':')) {
+                      const artifactPart = componentName.split(':')[1];
+                      packagePatterns.push(artifactPart);
+                    }
+                    
+                    // For npm scoped packages @org/package, try without scope
+                    if (ecosystem === 'npm' && componentName.startsWith('@')) {
+                      const unscoped = componentName.split('/')[1];
+                      if (unscoped) packagePatterns.push(unscoped);
+                    }
+                    
+                    // Try removing special characters
+                    packagePatterns.push(componentName.replace(/[@\/:]/g, ''));
+
+                    // Look for the package in the line
+                    const packageFound = packagePatterns.some(pattern => 
+                      pattern && line.includes(pattern)
+                    );
+                    
+                    if (packageFound && line.includes(currentVersion)) {
 
                       const upgradeCmd = upgradeCommand ||
                         (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
-                         ecosystem === 'PyPI' ? `pip install ${componentName}==${recommendedVersion}` :
-                         ecosystem === 'Maven' ? `Update pom.xml: <version>${recommendedVersion}</version>` :
-                         ecosystem === 'Go' ? `go get ${componentName}@v${recommendedVersion}` :
+                         ecosystem === 'pypi' ? `pip install ${componentName}==${recommendedVersion}` :
+                         ecosystem === 'maven' ? `Update pom.xml: <version>${recommendedVersion}</version>` :
+                         ecosystem === 'go' ? `go get ${componentName}@v${recommendedVersion}` :
                          `Upgrade ${componentName} to ${recommendedVersion}`);
 
                       const currentLine = line.replace(/^[+ ]/, '');
                       const suggestedLine = currentLine.replace(currentVersion, recommendedVersion);
+                      const displayEcosystem = getDisplayName(ecosystem);
 
-                      const fixComment = `✅ **Vulnerability Fix Available** (${ecosystem})\n\n` +
+                      const fixComment = `✅ **Vulnerability Fix Available** (${displayEcosystem})\n\n` +
                         `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${recommendedVersion}\`\n\n` +
                         `**Line replacement:**\n\`\`\`diff\n- ${currentLine}\n+ ${suggestedLine}\n\`\`\`\n\n` +
                         `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestedLine}\n\`\`\`\n\n` +
-                        `**Fix command (${ecosystem}):**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
+                        `**Fix command (${displayEcosystem}):**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
                         `This is a patch version upgrade (safe to apply). Always run tests after updating.`;
 
                       reviewComments.push({

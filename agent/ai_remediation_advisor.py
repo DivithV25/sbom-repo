@@ -546,8 +546,13 @@ def generate_ai_remediation_summary(
                 fallback_count += 1
 
             remediations.append({
-                "component": component,
-                "advice": advice
+                "component": {
+                    "name": component.get("name"),
+                    "version": component.get("version"),
+                    "ecosystem": component.get("ecosystem", "unknown")
+                },
+                "advice": advice,
+                "vulnerability_count": len(vulnerabilities)
             })
 
     # Summary
