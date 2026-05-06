@@ -3,3 +3,4 @@
 
 blocked_packages:
   - openssl
+  - jquery
