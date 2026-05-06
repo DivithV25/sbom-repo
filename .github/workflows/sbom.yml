@@ -271,15 +271,20 @@ jobs:
                     continue;
                   }
 
+                  console.log(`   Looking for files matching patterns: ${patterns.join(', ')}`);
+
                   // Find matching changed file
                   const changedFile = files.find(f => 
                     patterns.some(pattern => f.filename.endsWith(pattern))
                   );
 
                   if (!changedFile) {
-                    console.log(`⏭️ Skipping ${componentName} - no matching ${ecosystem} dependency file in changes`);
+                    console.log(`⏭️ Skipping ${componentName} - no matching ${ecosystem} file in PR changes`);
+                    console.log(`   PR contains these files: ${files.map(f => f.filename).join(', ')}`);
                     continue;
                   }
+                  
+                  console.log(`✓ Found ${ecosystem} file: ${changedFile.filename}`);
 
                   // Parse the patch to find dependencies
                   const patch = changedFile.patch || '';
@@ -368,33 +373,60 @@ jobs:
                       if (found) break;
                     }
                     // Standard format: package and version on same line (npm, pypi, go)
-                    else if (packageFound && line.includes(currentVersion)) {
-                      const upgradeCmd = upgradeCommand ||
-                        (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
-                         ecosystem === 'pypi' ? `pip install ${componentName}==${recommendedVersion}` :
-                         ecosystem === 'go' ? `go get ${componentName}@v${recommendedVersion}` :
-                         `Upgrade ${componentName} to ${recommendedVersion}`);
+                    else if (packageFound) {
+                      // Check for version in multiple formats to handle JSON, requirements.txt, go.mod, etc.
+                      const versionMatches = [
+                        currentVersion,                          // Direct version: 4.17.20
+                        `"${currentVersion}"`,                   // Quoted version: "4.17.20"
+                        `'${currentVersion}'`,                   // Single quoted: '4.17.20'
+                        `v${currentVersion}`,                    // Go version: v4.17.20
+                        `==${currentVersion}`,                   // Python ==: ==4.17.20
+                        `@${currentVersion}`                     // npm @: @4.17.20
+                      ];
+                      
+                      const versionFound = versionMatches.some(v => line.includes(v));
+                      
+                      if (versionFound) {
+                        const upgradeCmd = upgradeCommand ||
+                          (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
+                           ecosystem === 'pypi' ? `pip install ${componentName}==${recommendedVersion}` :
+                           ecosystem === 'go' ? `go get ${componentName}@v${recommendedVersion}` :
+                           `Upgrade ${componentName} to ${recommendedVersion}`);
 
-                      const currentLine = line.replace(/^[+ ]/, '');
-                      const suggestedLine = currentLine.replace(currentVersion, recommendedVersion);
-                      const displayEcosystem = getDisplayName(ecosystem);
+                        const currentLine = line.replace(/^[+ ]/, '');
+                        // Replace version with recommended, handling quoted/unquoted formats
+                        let suggestedLine = currentLine;
+                        for (const versionFormat of versionMatches) {
+                          if (suggestedLine.includes(versionFormat)) {
+                            const recommendedFormat = versionFormat
+                              .replace(currentVersion, recommendedVersion)
+                              .replace('==' + currentVersion, '==' + recommendedVersion);
+                            suggestedLine = suggestedLine.replace(versionFormat, recommendedFormat);
+                            break;
+                          }
+                        }
 
-                      const fixComment = `✅ **Vulnerability Fix Available** (${displayEcosystem})\n\n` +
-                        `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${recommendedVersion}\`\n\n` +
-                        `**Line replacement:**\n\`\`\`diff\n- ${currentLine}\n+ ${suggestedLine}\n\`\`\`\n\n` +
-                        `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestedLine}\n\`\`\`\n\n` +
-                        `**Fix command (${displayEcosystem}):**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
-                        `This is a patch version upgrade (safe to apply). Always run tests after updating.`;
+                        const displayEcosystem = getDisplayName(ecosystem);
 
-                      reviewComments.push({
-                        path: changedFile.filename,
-                        position: position,
-                        body: fixComment
-                      });
+                        const fixComment = `✅ **Vulnerability Fix Available** (${displayEcosystem})\n\n` +
+                          `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${recommendedVersion}\`\n\n` +
+                          `**Line replacement:**\n\`\`\`diff\n- ${currentLine}\n+ ${suggestedLine}\n\`\`\`\n\n` +
+                          `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestedLine}\n\`\`\`\n\n` +
+                          `**Fix command (${displayEcosystem}):**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
+                          `This is a patch version upgrade (safe to apply). Always run tests after updating.`;
 
-                      console.log(`📝 Added inline suggestion for ${componentName} (${ecosystem}) at position ${position}`);
-                      found = true;
-                      break;
+                        reviewComments.push({
+                          path: changedFile.filename,
+                          position: position,
+                          body: fixComment
+                        });
+
+                        console.log(`📝 Added inline suggestion for ${componentName} (${ecosystem}) at position ${position}`);
+                        found = true;
+                        break;
+                      } else {
+                        console.log(`⏭️ Found package ${componentName} on line but version ${currentVersion} not found in formats: ${versionMatches.join(', ')}`);
+                      }
                     }
                   }
                   
