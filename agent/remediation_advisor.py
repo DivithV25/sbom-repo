@@ -297,102 +297,28 @@ def generate_remediation_advice(
     }
 
 
-def generate_removal_advice(
-    package_name: str,
-    current_version: str,
-    ecosystem: str
-) -> Dict[str, Any]:
-    """
-    Generate advice to remove a blocked package.
-
-    Args:
-        package_name: Package name
-        current_version: Current version
-        ecosystem: Ecosystem (npm, PyPI, Maven, etc.)
-
-    Returns:
-        {
-            "action": "remove",
-            "package_name": str,
-            "current_version": str,
-            "removal_command": str,
-            "actionable_steps": list[str],
-            "is_blocked": true,
-            "priority": "critical"
-        }
-    """
-    removal_commands = {
-        "npm": f"npm uninstall {package_name}",
-        "PyPI": f"Remove from requirements.txt and run: pip install -r requirements.txt",
-        "Maven": f"Remove <dependency> from pom.xml:",
-        "Go": f"Remove from go.mod and run: go mod tidy",
-        "NuGet": f"dotnet remove package {package_name}",
-        "RubyGems": f"Remove from Gemfile and run: bundle install",
-        "Cargo": f"Remove from Cargo.toml and run: cargo update"
-    }
-
-    removal_command = removal_commands.get(ecosystem, f"Remove {package_name} from your dependencies")
-
-    steps = [
-        f"🚫 **This package is blocked by organizational policy.**",
-        f"1. Remove {package_name} from your dependency list",
-        f"2. Run: `{removal_command}`",
-        f"3. Test your application to ensure it works without this package",
-        f"4. If needed, use an approved alternative package"
-    ]
-
-    return {
-        "action": "remove",
-        "package_name": package_name,
-        "current_version": current_version,
-        "removal_command": removal_command,
-        "actionable_steps": steps,
-        "is_blocked": True,
-        "priority": "critical",
-        "ecosystem": ecosystem
-    }
-
-
-def generate_remediation_summary(findings: List[Dict[str, Any]], rules: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+def generate_remediation_summary(findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Generate remediation advice for all vulnerable components.
 
     Args:
         findings: List of component findings with vulnerabilities and reachability
-        rules: Optional rules dict containing blocked_packages list
 
     Returns:
         List of remediation recommendations, sorted by priority
     """
     remediations = []
-    blocked_packages = set((rules or {}).get("blocked_packages", []))
 
     for finding in findings:
-        component = finding["component"]
-        comp_name = component["name"]
-
-        # Check if package is blocked
-        if comp_name in blocked_packages:
-            advice = generate_removal_advice(
-                comp_name,
-                component["version"],
-                component.get("ecosystem", "unknown")
-            )
-            advice["component"] = comp_name
-            advice["current_version"] = component["version"]
-            advice["vulnerability_count"] = 0
-            remediations.append(advice)
-            continue
-
-        # Handle vulnerable packages
         if not finding.get("vulnerabilities"):
             continue
 
+        component = finding["component"]
         vulnerabilities = finding["vulnerabilities"]
         reachability = component.get("reachability", {})
 
         advice = generate_remediation_advice(
-            comp_name,
+            component["name"],
             component["version"],
             component.get("ecosystem", "unknown"),
             vulnerabilities,
@@ -400,7 +326,7 @@ def generate_remediation_summary(findings: List[Dict[str, Any]], rules: Dict[str
         )
 
         # Add component info
-        advice["component"] = comp_name
+        advice["component"] = component["name"]
         advice["current_version"] = component["version"]
         advice["vulnerability_count"] = len(vulnerabilities)
 

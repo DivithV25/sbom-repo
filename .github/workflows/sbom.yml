@@ -135,26 +135,17 @@ jobs:
                 // Build review comments
                 const reviewComments = [];
                 for (const remediation of remediations) {
-                  const advice = remediation.advice || remediation;  // Handle both nested and flat structures
+                  const advice = remediation.advice || {};
                   const component = remediation.component || {};
                   const componentName = component.name;
                   const currentVersion = component.version;
 
-                  // Check if this is a blocked package (removal action)
-                  const isBlocked = remediation.action === 'remove' || advice.is_blocked === true;
-                  
-                  // For blocked packages, use removal_command; for vulnerabilities, use recommended_version
-                  const removalCommand = advice.removal_command;
-                  const recommendedVersion = advice.recommended_version;
-                  const upgradeCommand = advice.upgrade_command;
+                  // Handle both direct fields and nested remediation_plan fields
+                  const remediationPlan = advice.remediation_plan || {};
+                  const recommendedVersion = advice.recommended_version || remediationPlan.recommended_version;
+                  const upgradeCommand = advice.upgrade_command || remediationPlan.upgrade_command;
 
-                  if (!componentName) {
-                    console.log(`⏭️ Skipping ${componentName} - missing component name`);
-                    continue;
-                  }
-
-                  // Skip if neither removal nor upgrade is available
-                  if (!isBlocked && !recommendedVersion) {
+                  if (!componentName || !recommendedVersion) {
                     console.log(`⏭️ Skipping ${componentName} - no recommended version available`);
                     continue;
                   }
@@ -186,42 +177,20 @@ jobs:
 
                     // Look for the package in the line
                     if (componentName && line.includes(componentName) && line.includes(currentVersion)) {
-                      let fixComment;
-                      
-                      if (isBlocked) {
-                        // Blocked package - show removal suggestion
-                        const currentLine = line.replace(/^[+ ]/, '');
-                        const removeCmd = removalCommand || 
-                          (ecosystem === 'npm' ? `npm uninstall ${componentName}` :
-                           ecosystem.includes('pypi') ? `Remove from requirements.txt and run: pip install -r requirements.txt` :
-                           `Remove ${componentName} from your dependencies`);
-                        
-                        fixComment = `🚫 **Blocked Package - Must Remove**\n\n` +
-                          `Package \`${componentName}@${currentVersion}\` is **blocked by organizational policy**.\n\n` +
-                          `**Reason:** This package is on the organization's blocked list (see \`rules/blocked_packages.yaml\`)\n\n` +
-                          `**Remove this dependency:**\n\`\`\`bash\n${removeCmd}\n\`\`\`\n\n` +
-                          `**Steps:**\n` +
-                          `1. Remove this package from your dependency file\n` +
-                          `2. Run the removal command above\n` +
-                          `3. Test your application to ensure it works without this package\n` +
-                          `4. If you need this package, request an exception from your security team`;
-                      } else {
-                        // Vulnerable package - show upgrade suggestion
-                        const upgradeCmd = upgradeCommand ||
-                          (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
-                           ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
-                           `Upgrade ${componentName} to ${recommendedVersion}`);
+                      const upgradeCmd = upgradeCommand ||
+                        (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
+                         ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
+                         `Upgrade ${componentName} to ${recommendedVersion}`);
 
-                        const currentLine = line.replace(/^[+ ]/, '');
-                        const suggestedLine = currentLine.replace(currentVersion, recommendedVersion);
+                      const currentLine = line.replace(/^[+ ]/, '');
+                      const suggestedLine = currentLine.replace(currentVersion, recommendedVersion);
 
-                        fixComment = `✅ **Vulnerability Fix Available**\n\n` +
-                          `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${recommendedVersion}\`\n\n` +
-                          `**Line replacement:**\n\`\`\`diff\n- ${currentLine}\n+ ${suggestedLine}\n\`\`\`\n\n` +
-                          `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestedLine}\n\`\`\`\n\n` +
-                          `**Fix command:**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
-                          `This is a patch version upgrade (safe to apply). Always run tests after updating.`;
-                      }
+                      const fixComment = `✅ **Vulnerability Fix Available**\n\n` +
+                        `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${recommendedVersion}\`\n\n` +
+                        `**Line replacement:**\n\`\`\`diff\n- ${currentLine}\n+ ${suggestedLine}\n\`\`\`\n\n` +
+                        `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestedLine}\n\`\`\`\n\n` +
+                        `**Fix command:**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
+                        `This is a patch version upgrade (safe to apply). Always run tests after updating.`;
 
                       reviewComments.push({
                         path: changedFile.filename,
@@ -229,7 +198,7 @@ jobs:
                         body: fixComment
                       });
 
-                      console.log(`📝 Added inline ${isBlocked ? 'removal' : 'fix'} suggestion for ${componentName} at position ${position}`);
+                      console.log(`📝 Added inline suggestion for ${componentName} at position ${position}`);
                       break; // Move to next remediation
                     }
                   }
