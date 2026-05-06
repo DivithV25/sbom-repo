@@ -201,6 +201,84 @@ def build_review_comments(
     return review_comments
 
 
+def generate_removal_comment(
+    package_name: str,
+    current_version: str,
+    removal_command: str,
+    ecosystem: str
+) -> str:
+    """
+    Generate a review comment for a blocked package with removal suggestion.
+    
+    Args:
+        package_name: Package name
+        current_version: Current version
+        removal_command: Command to remove the package
+        ecosystem: Ecosystem (npm, pypi, maven, etc.)
+        
+    Returns:
+        Markdown-formatted removal comment
+    """
+    comment = f"🚫 **Blocked Package Detected**\n\n"
+    comment += f"Package `{package_name}@{current_version}` is **blocked by organizational policy** and must be removed.\n\n"
+    comment += f"**Reason:** This package is on the organization's blocked list (see `rules/blocked_packages.yaml`).\n\n"
+    comment += f"**Removal command:**\n```bash\n{removal_command}\n```\n\n"
+    comment += f"**Steps:**\n"
+    comment += f"1. Remove `{package_name}` from your dependency file\n"
+    comment += f"2. Run the removal command above\n"
+    comment += f"3. Test your application to ensure functionality\n"
+    comment += f"4. If you need this package, request an exception from your security team\n"
+    
+    return comment
+
+
+def generate_removal_suggestion(
+    file_content: str,
+    package_name: str,
+    current_version: str,
+    ecosystem: str
+) -> str:
+    """
+    Generate a suggestion block to remove a package (GitHub's "Apply suggestion" format).
+    
+    This creates a diff-like suggestion that developers can apply with one click.
+    
+    Args:
+        file_content: Current content of the dependency file
+        package_name: Package name to remove
+        current_version: Current version
+        ecosystem: Ecosystem (npm, pypi, maven, etc.)
+        
+    Returns:
+        Markdown suggestion block
+    """
+    lines = file_content.split('\n')
+    suggested_lines = []
+    removed_line = False
+    
+    for line in lines:
+        # For JSON-based files (package.json)
+        if ecosystem.lower() == "npm":
+            # Check if this line contains the package
+            if f'"{package_name}"' in line or f"'{package_name}'" in line:
+                if f'"' in line and current_version in line:
+                    # Skip this line (removal)
+                    removed_line = True
+                    continue
+        # For text-based files (requirements.txt)
+        elif ecosystem.lower() in ("pypi", "pypi (pip)"):
+            if package_name in line and current_version in line:
+                removed_line = True
+                continue
+        
+        suggested_lines.append(line)
+    
+    suggested_content = '\n'.join(suggested_lines)
+    
+    suggestion = f"```suggestion\n{suggested_content}\n```"
+    return suggestion
+
+
 def _get_dependency_file_for_ecosystem(ecosystem: str) -> str:
     """Get the main dependency file for a given ecosystem."""
     ecosystem_lower = (ecosystem or "").lower()

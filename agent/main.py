@@ -104,15 +104,18 @@ def main():
 
     risk_summary = compute_risk(findings)
 
+    # Load rules early so they can be used in remediation
+    rules = load_rules(args.rules)
+
     # Generate remediation advice
     print("\n💊 Generating remediation recommendations...")
 
     # Use AI remediation by default (unless --no-ai flag is set)
     if use_ai:
         from agent.ai_remediation_advisor import generate_ai_remediation_summary
-        remediations = generate_ai_remediation_summary(findings)
+        remediations = generate_ai_remediation_summary(findings, rules)
     else:
-        remediations = generate_remediation_summary(findings)
+        remediations = generate_remediation_summary(findings, rules)
 
     # Propagate alternative packages from remediations back to findings for inline display
     for remediation in remediations:
@@ -125,8 +128,6 @@ def main():
                 if finding.get("component", {}).get("name") == comp_name:
                     finding["component"]["alternative_packages"] = alternatives
                     break
-
-    rules = load_rules(args.rules)
 
     # Use Python-based policy evaluation (OPA removed)
     decision, reason = evaluate_policy(risk_summary, findings, rules)
