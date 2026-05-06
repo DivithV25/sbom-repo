@@ -509,6 +509,7 @@ def get_ai_remediation_advice(
 
 def generate_ai_remediation_summary(
     findings: List[Dict[str, Any]],
+    rules: Dict[str, Any] = None,
     project_root: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
@@ -516,6 +517,7 @@ def generate_ai_remediation_summary(
 
     Args:
         findings: List of findings with components and vulnerabilities
+        rules: Optional rules dict containing blocked_packages list
         project_root: Project root for code analysis
 
     Returns:
@@ -525,11 +527,27 @@ def generate_ai_remediation_summary(
     remediations = []
     ai_count = 0
     fallback_count = 0
+    blocked_packages = set((rules or {}).get("blocked_packages", []))
 
     for finding in findings:
         component = finding.get("component", {})
+        comp_name = component.get("name")
         vulnerabilities = finding.get("vulnerabilities", [])
         reachability = finding.get("reachability", {})
+
+        # Check if package is blocked
+        if comp_name in blocked_packages:
+            from agent.remediation_advisor import generate_removal_advice
+            advice = generate_removal_advice(
+                comp_name,
+                component.get("version", "unknown"),
+                component.get("ecosystem", "unknown")
+            )
+            remediations.append({
+                "component": component,
+                "advice": advice
+            })
+            continue
 
         if vulnerabilities:
             advice = advisor.generate_remediation_advice(
