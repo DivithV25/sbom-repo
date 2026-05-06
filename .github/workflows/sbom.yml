@@ -245,24 +245,35 @@ jobs:
                 const reviewComments = [];
                 
                 for (const remediation of remediations) {
+                  // Support both remediation schemas:
+                  // 1) Nested: { component: {name, version, ecosystem}, advice: {recommended_version, upgrade_command} }
+                  // 2) Flat:   { component, current_version, recommended_version, upgrade_command, ecosystem }
                   const advice = remediation.advice || {};
-                  const component = remediation.component || {};
-                  const componentName = component.name;
-                  const currentVersion = component.version;
-                  const rawEcosystem = component.ecosystem || 'unknown';
+                  const componentField = remediation.component || {};
+                  const componentName = typeof componentField === 'string'
+                    ? componentField
+                    : componentField.name;
+                  const currentVersion = remediation.current_version || componentField.version;
+                  const rawEcosystem = remediation.ecosystem || componentField.ecosystem || 'unknown';
                   const ecosystem = normalizeEcosystem(rawEcosystem);
 
                   // Handle both direct fields and nested remediation_plan fields
                   const remediationPlan = advice.remediation_plan || {};
-                  const recommendedVersion = advice.recommended_version || remediationPlan.recommended_version;
-                  const upgradeCommand = advice.upgrade_command || remediationPlan.upgrade_command;
+                  const recommendedVersion =
+                    remediation.recommended_version ||
+                    advice.recommended_version ||
+                    remediationPlan.recommended_version;
+                  const upgradeCommand =
+                    remediation.upgrade_command ||
+                    advice.upgrade_command ||
+                    remediationPlan.upgrade_command;
 
                   if (!componentName || !recommendedVersion) {
                     console.log(`⏭️ Skipping ${componentName} - no recommended version available`);
                     continue;
                   }
 
-                  console.log(`📦 Processing: ${componentName} (ecosystem: ${rawEcosystem} -> normalized: ${ecosystem})`);
+                  console.log(`📦 Processing: ${componentName} (ecosystem: ${rawEcosystem} -> normalized: ${ecosystem}, current=${currentVersion}, target=${recommendedVersion})`);
 
                   // Find matching file patterns for this ecosystem
                   const patterns = ecosystemFilePatterns[ecosystem] || [];
@@ -273,10 +284,13 @@ jobs:
 
                   console.log(`   Looking for files matching patterns: ${patterns.join(', ')}`);
 
-                  // Find matching changed file
-                  const changedFile = files.find(f => 
+                  // Find matching changed file; prefer package.json over lockfiles for npm
+                  const matchedFiles = files.filter(f =>
                     patterns.some(pattern => f.filename.endsWith(pattern))
                   );
+                  const changedFile =
+                    matchedFiles.find(f => f.filename.endsWith('package.json')) ||
+                    matchedFiles[0];
 
                   if (!changedFile) {
                     console.log(`⏭️ Skipping ${componentName} - no matching ${ecosystem} file in PR changes`);
@@ -288,6 +302,10 @@ jobs:
 
                   // Parse the patch to find dependencies
                   const patch = changedFile.patch || '';
+                  if (!patch) {
+                    console.log(`⏭️ Skipping ${componentName} - ${changedFile.filename} has no patch content (possibly too large/binary/renamed)`);
+                    continue;
+                  }
                   const lines = patch.split('\n');
 
                   let position = 0;
@@ -373,7 +391,7 @@ jobs:
                       if (found) break;
                     }
                     // Standard format: package and version on same line (npm, pypi, go)
-                    else if (packageFound) {
+                    else if (packageFound && currentVersion) {
                       // Check for version in multiple formats to handle JSON, requirements.txt, go.mod, etc.
                       const versionMatches = [
                         currentVersion,                          // Direct version: 4.17.20
@@ -427,6 +445,30 @@ jobs:
                       } else {
                         console.log(`⏭️ Found package ${componentName} on line but version ${currentVersion} not found in formats: ${versionMatches.join(', ')}`);
                       }
+                    } else if (packageFound && !currentVersion) {
+                      // Flat remediation entries may occasionally omit current_version.
+                      // In that case, still anchor suggestion to the package line.
+                      const upgradeCmd = upgradeCommand ||
+                        (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
+                         ecosystem === 'pypi' ? `pip install ${componentName}==${recommendedVersion}` :
+                         ecosystem === 'go' ? `go get ${componentName}@v${recommendedVersion}` :
+                         `Upgrade ${componentName} to ${recommendedVersion}`);
+
+                      const currentLine = line.replace(/^[+ ]/, '');
+                      const displayEcosystem = getDisplayName(ecosystem);
+                      const fixComment = `✅ **Vulnerability Fix Available** (${displayEcosystem})\n\n` +
+                        `Upgrade \`${componentName}\` to \`${recommendedVersion}\`.\n\n` +
+                        `**Fix command (${displayEcosystem}):**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
+                        `Current version could not be inferred from remediation payload, so this is a package-level suggestion.`;
+
+                      reviewComments.push({
+                        path: changedFile.filename,
+                        position: position,
+                        body: fixComment
+                      });
+                      console.log(`📝 Added package-level inline suggestion for ${componentName} (${ecosystem}) at position ${position}`);
+                      found = true;
+                      break;
                     }
                   }
                   
