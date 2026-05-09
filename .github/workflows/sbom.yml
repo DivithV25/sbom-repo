@@ -24,16 +24,55 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Node (for npm projects; remove for other ecosystems)
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: Install dependencies (npm ci)
-        if: always()
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Set up Java (for Maven)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Node dependencies from application
+        if: hashFiles('application/package-lock.json') != '' || hashFiles('application/package.json') != ''
         run: |
-          # Only do this if your project has a lockfile and requires install:
-          if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install --no-audit --no-fund; fi
+          if [ -f application/package-lock.json ]; then
+            npm ci --prefix application
+          elif [ -f application/package.json ]; then
+            npm install --prefix application --no-audit --no-fund
+          fi
+
+      - name: Install scanner Python dependencies
+        if: hashFiles('requirements.txt') != ''
+        run: pip install -r requirements.txt
+
+      - name: Install Python dependencies from application (isolated venv)
+        if: hashFiles('application/requirements.txt') != ''
+        run: |
+          python -m venv .application-py-venv
+          .application-py-venv/bin/pip install --upgrade pip
+          .application-py-venv/bin/pip install -r application/requirements.txt
+
+      - name: Download Go modules from application
+        if: hashFiles('application/go.mod') != ''
+        working-directory: application
+        run: go mod download
+
+      - name: Resolve Maven dependencies from application
+        if: hashFiles('application/pom.xml') != ''
+        run: mvn -B -f application/pom.xml dependency:resolve
 
       - name: Generate SBOM and upload artifact (Anchore sbom-action)
         uses: anchore/sbom-action@v0
@@ -41,17 +80,7 @@ jobs:
           # Choose format: spdx-json, cyclonedx-json, syft-json, etc.
           format: cyclonedx-json
           output-file: sbom.json
-          # target defaults to workspace; you can set TARGET to a path or image
-          # target: .
-
-      - name: Set up Python for vulnerability scanning
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Python dependencies
-        run: |
-          pip install -r requirements.txt
+          target: application
 
       - name: Run Vulnerability Scanner
         id: vuln-scan
@@ -132,6 +161,7 @@ jobs:
                   pull_number: context.issue.number
                 });
 
+
                 // Build review comments
                 const reviewComments = [];
                 for (const remediation of remediations) {
@@ -139,11 +169,46 @@ jobs:
                   const component = remediation.component || {};
                   const componentName = component.name;
                   const currentVersion = component.version;
+                  const ecosystem = (component.ecosystem || 'npm').toLowerCase();
 
                   // Handle both direct fields and nested remediation_plan fields
                   const remediationPlan = advice.remediation_plan || {};
-                  const recommendedVersion = advice.recommended_version || remediationPlan.recommended_version;
+                  const recommendedVersionRaw = advice.recommended_version || remediationPlan.recommended_version;
                   const upgradeCommand = advice.upgrade_command || remediationPlan.upgrade_command;
+                  const normalizedGoVersion = (version) => {
+                    if (!version) return version;
+                    return version.startsWith('v') ? version : `v${version}`;
+                  };
+                  const normalizedMavenVersion = (version, commandText) => {
+                    const cleanToken = (input) => {
+                      if (!input) return null;
+                      const text = String(input).trim();
+                      if (!text) return null;
+                      // Prefer explicit versions with separators; supports 1.2.3, 2.0.0.Final, 3.1.0-RC1, etc.
+                      const versionLike = text.match(/(\d[\w.-]*\d|\d+\.\d+(?:[.\w-]+)?)/);
+                      if (versionLike && versionLike[1]) {
+                        return versionLike[1].replace(/^v(?=\d)/, '');
+                      }
+                      return text.replace(/^v(?=\d)/, '');
+                    };
+
+                    return cleanToken(version) || cleanToken(commandText);
+                  };
+                  const parseMavenTarget = (name, version, commandText) => {
+                    const [defaultGroupId, defaultArtifactId] = (name || '').split(':');
+                    const normalizedVersion = normalizedMavenVersion(version, commandText);
+                    return {
+                      groupId: defaultGroupId,
+                      artifactId: defaultArtifactId,
+                      version: normalizedVersion
+                    };
+                  };
+                  const recommendedVersion =
+                    ecosystem === 'go'
+                      ? normalizedGoVersion(recommendedVersionRaw)
+                      : ecosystem === 'maven'
+                        ? normalizedMavenVersion(recommendedVersionRaw, upgradeCommand)
+                        : recommendedVersionRaw;
 
                   if (!componentName || !recommendedVersion) {
                     console.log(`⏭️ Skipping ${componentName} - no recommended version available`);
@@ -151,7 +216,6 @@ jobs:
                   }
 
                   // Determine file based on ecosystem
-                  const ecosystem = (component.ecosystem || 'npm').toLowerCase();
                   let targetFile = 'package.json'; // default
                   if (ecosystem.includes('pypi')) targetFile = 'requirements.txt';
                   else if (ecosystem === 'maven') targetFile = 'pom.xml';
@@ -164,6 +228,10 @@ jobs:
                   // Parse the patch to find dependencies
                   const patch = changedFile.patch || '';
                   const lines = patch.split('\n');
+                  const [mavenGroupId, mavenArtifactId] = (componentName || '').split(':');
+                  const mavenTarget = ecosystem === 'maven'
+                    ? parseMavenTarget(componentName, recommendedVersion, upgradeCommand)
+                    : null;
 
                   let position = 0;
                   for (const line of lines) {
@@ -175,20 +243,57 @@ jobs:
                     // Skip removed lines but count them in position
                     if (line.startsWith('-')) continue;
 
-                    // Look for the package in the line
-                    if (componentName && line.includes(componentName) && line.includes(currentVersion)) {
+                    const currentLine = line.replace(/^[+ ]/, '');
+                    let shouldSuggest = false;
+
+                    // Standard matcher (npm, pypi, go): package and version on same line
+                    if (componentName && currentLine.includes(componentName) && currentLine.includes(currentVersion)) {
+                      shouldSuggest = true;
+                    }
+
+                    // Maven matcher: name is groupId:artifactId, version is usually on separate XML line
+                    if (!shouldSuggest && ecosystem === 'maven' && mavenArtifactId && currentVersion) {
+                      const versionTagMatch = currentLine.match(/<version>\s*([^<]+)\s*<\/version>/i);
+                      if (versionTagMatch && versionTagMatch[1] === currentVersion) {
+                        // Confirm nearby artifact/group tags in added/context lines
+                        const start = Math.max(0, position - 8);
+                        const end = Math.min(lines.length, position + 8);
+                        const localContext = lines
+                          .slice(start, end)
+                          .filter(ctxLine => !ctxLine.startsWith('-'))
+                          .map(ctxLine => ctxLine.replace(/^[+ ]/, ''))
+                          .join('\n');
+
+                        const groupMatch = !mavenGroupId || localContext.includes(`<groupId>${mavenGroupId}</groupId>`);
+                        const artifactMatch = localContext.includes(`<artifactId>${mavenArtifactId}</artifactId>`);
+                        shouldSuggest = groupMatch && artifactMatch;
+                      }
+                    }
+
+                    if (shouldSuggest) {
+                      const effectiveVersion =
+                        ecosystem === 'maven' && mavenTarget?.version
+                          ? mavenTarget.version
+                          : recommendedVersion;
+                      let suggestedLine = currentLine.replace(currentVersion, effectiveVersion);
+                      let replacementDiff = `- ${currentLine}\n+ ${suggestedLine}`;
+                      let suggestionBlock = suggestedLine;
+
+                      if (suggestedLine === currentLine && suggestionBlock === currentLine) {
+                        console.log(`⏭️ Skipping ${componentName} - suggestion could not safely update line`);
+                        continue;
+                      }
+
                       const upgradeCmd = upgradeCommand ||
                         (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
                          ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
+                         ecosystem === 'go' ? `go get ${componentName}@${recommendedVersion}` :
                          `Upgrade ${componentName} to ${recommendedVersion}`);
 
-                      const currentLine = line.replace(/^[+ ]/, '');
-                      const suggestedLine = currentLine.replace(currentVersion, recommendedVersion);
-
                       const fixComment = `✅ **Vulnerability Fix Available**\n\n` +
-                        `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${recommendedVersion}\`\n\n` +
-                        `**Line replacement:**\n\`\`\`diff\n- ${currentLine}\n+ ${suggestedLine}\n\`\`\`\n\n` +
-                        `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestedLine}\n\`\`\`\n\n` +
+                        `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${effectiveVersion}\`\n\n` +
+                        `**Line replacement:**\n\`\`\`diff\n${replacementDiff}\n\`\`\`\n\n` +
+                        `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestionBlock}\n\`\`\`\n\n` +
                         `**Fix command:**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
                         `This is a patch version upgrade (safe to apply). Always run tests after updating.`;
 
