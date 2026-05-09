@@ -196,15 +196,38 @@ jobs:
                   const parseMavenTarget = (name, version, commandText) => {
                     const [defaultGroupId, defaultArtifactId] = (name || '').split(':');
                     const normalizedVersion = normalizedMavenVersion(version, commandText);
-                    const cmd = String(commandText || '');
-                    const gavMatch = cmd.match(/([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+)/);
-                    if (gavMatch) {
-                      return {
-                        groupId: gavMatch[1],
-                        artifactId: gavMatch[2],
-                        version: normalizedMavenVersion(gavMatch[3], commandText) || normalizedVersion
-                      };
+                    const aiTextBlob = [
+                      String(commandText || ''),
+                      String(advice?.summary || ''),
+                      String(advice?.migration_instructions || ''),
+                      String(remediationPlan?.migration_instructions || ''),
+                      JSON.stringify(advice || {})
+                    ].join(' ');
+
+                    // Generic parser for Maven coordinates in AI text:
+                    //   group:artifact:version  or group:artifact@version
+                    const gavRegex = /([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+)(?::|@)([A-Za-z0-9_.-]+)/g;
+                    const matches = [...aiTextBlob.matchAll(gavRegex)];
+                    for (const match of matches) {
+                      const parsedVersion = normalizedMavenVersion(match[3], commandText);
+                      if (!parsedVersion) continue;
+
+                      const majorMatches =
+                        !normalizedVersion ||
+                        String(parsedVersion).split('.')[0] === String(normalizedVersion).split('.')[0];
+                      if (!majorMatches) continue;
+
+                      const coordinateChanged =
+                        match[1] !== defaultGroupId || match[2] !== defaultArtifactId;
+                      if (coordinateChanged) {
+                        return {
+                          groupId: match[1],
+                          artifactId: match[2],
+                          version: parsedVersion
+                        };
+                      }
                     }
+
                     return {
                       groupId: defaultGroupId,
                       artifactId: defaultArtifactId,
