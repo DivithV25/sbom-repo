@@ -191,22 +191,34 @@ jobs:
                   }
                 };
                 const mavenSearchCache = new Map();
+                const tokenizeSearchKeyword = (raw) =>
+                  String(raw || '').trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
                 const findMavenMigrationTarget = async (currentGroupId, currentArtifactId, targetVersion, alternatives) => {
                   const desiredMajor = String(targetVersion || '').split('.')[0];
-                  if (!desiredMajor || !alternatives.length) return null;
+                  const keywords = [
+                    ...(alternatives || []).map(tokenizeSearchKeyword),
+                    tokenizeSearchKeyword(currentArtifactId),
+                    tokenizeSearchKeyword(currentGroupId?.split('.').pop())
+                  ].filter(Boolean);
+                  if (!keywords.length) return null;
 
-                  for (const rawName of alternatives) {
-                    const keyword = String(rawName || '').trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
-                    if (!keyword) continue;
+                  for (const keyword of keywords) {
                     if (!mavenSearchCache.has(keyword)) {
                       mavenSearchCache.set(keyword, await searchMavenCoordinates(keyword));
                     }
                     const candidates = mavenSearchCache.get(keyword) || [];
-                    const match = candidates.find(c =>
+                    // Pass 1: same target major version
+                    const majorMatch = candidates.find(c =>
                       !(c.groupId === currentGroupId && c.artifactId === currentArtifactId) &&
                       String(c.version || '').split('.')[0] === desiredMajor
                     );
-                    if (match) return match;
+                    if (majorMatch) return majorMatch;
+
+                    // Pass 2: any different coordinates as best-effort migration candidate
+                    const fallback = candidates.find(c =>
+                      !(c.groupId === currentGroupId && c.artifactId === currentArtifactId)
+                    );
+                    if (fallback) return fallback;
                   }
                   return null;
                 };
