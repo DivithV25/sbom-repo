@@ -126,6 +126,7 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
+            const https = require('https');
 
             // Read the main report
             let comment = '## 🔐 PRISM Security Scan Results\n\n';
@@ -161,6 +162,76 @@ jobs:
                   pull_number: context.issue.number
                 });
 
+                const fetchText = async (url) => {
+                  return await new Promise((resolve, reject) => {
+                    https.get(url, (res) => {
+                      if (res.statusCode !== 200) {
+                        reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+                        return;
+                      }
+                      let body = '';
+                      res.on('data', chunk => body += chunk);
+                      res.on('end', () => resolve(body));
+                    }).on('error', reject);
+                  });
+                };
+                const searchMavenCoordinates = async (keyword) => {
+                  const q = encodeURIComponent(`a:${keyword} OR g:${keyword}`);
+                  const url = `https://search.maven.org/solrsearch/select?q=${q}&rows=10&wt=json`;
+                  try {
+                    const responseText = await fetchText(url);
+                    const parsed = JSON.parse(responseText);
+                    const docs = parsed?.response?.docs || [];
+                    return docs
+                      .filter(d => d.g && d.a && d.latestVersion)
+                      .map(d => ({ groupId: d.g, artifactId: d.a, version: d.latestVersion }));
+                  } catch (error) {
+                    console.warn(`⚠️ Maven search failed for keyword "${keyword}": ${error.message}`);
+                    return [];
+                  }
+                };
+                const mavenSearchCache = new Map();
+                const findMavenMigrationTarget = async (currentGroupId, currentArtifactId, targetVersion, alternatives) => {
+                  const desiredMajor = String(targetVersion || '').split('.')[0];
+                  if (!desiredMajor || !alternatives.length) return null;
+
+                  for (const rawName of alternatives) {
+                    const keyword = String(rawName || '').trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
+                    if (!keyword) continue;
+                    if (!mavenSearchCache.has(keyword)) {
+                      mavenSearchCache.set(keyword, await searchMavenCoordinates(keyword));
+                    }
+                    const candidates = mavenSearchCache.get(keyword) || [];
+                    const match = candidates.find(c =>
+                      !(c.groupId === currentGroupId && c.artifactId === currentArtifactId) &&
+                      String(c.version || '').split('.')[0] === desiredMajor
+                    );
+                    if (match) return match;
+                  }
+                  return null;
+                };
+                const extractAlternativeNames = (adviceObj, remediationPlanObj) => {
+                  const buckets = [
+                    adviceObj?.alternative_packages,
+                    remediationPlanObj?.alternative_packages,
+                    adviceObj?.alternatives,
+                    remediationPlanObj?.alternatives
+                  ];
+                  const names = [];
+                  for (const bucket of buckets) {
+                    if (!bucket) continue;
+                    if (Array.isArray(bucket)) {
+                      for (const item of bucket) {
+                        if (typeof item === 'string') names.push(item);
+                        else if (item && typeof item === 'object' && item.name) names.push(String(item.name));
+                      }
+                    } else if (typeof bucket === 'string') {
+                      names.push(bucket);
+                    }
+                  }
+                  return [...new Set(names)];
+                };
+
                 // Build review comments
                 const reviewComments = [];
                 for (const remediation of remediations) {
@@ -193,7 +264,7 @@ jobs:
 
                     return cleanToken(version) || cleanToken(commandText);
                   };
-                  const parseMavenTarget = (name, version, commandText) => {
+                  const parseMavenTarget = async (name, version, commandText, currentVer) => {
                     const [defaultGroupId, defaultArtifactId] = (name || '').split(':');
                     const normalizedVersion = normalizedMavenVersion(version, commandText);
                     const aiTextBlob = [
@@ -225,6 +296,24 @@ jobs:
                           artifactId: match[2],
                           version: parsedVersion
                         };
+                      }
+                    }
+
+                    // If AI didn't provide explicit coordinates, try generic inference from alternative package names.
+                    const alternatives = extractAlternativeNames(advice, remediationPlan);
+                    const majorChanged =
+                      normalizedVersion &&
+                      currentVer &&
+                      String(normalizedVersion).split('.')[0] !== String(currentVer).split('.')[0];
+                    if (majorChanged && alternatives.length > 0) {
+                      const inferred = await findMavenMigrationTarget(
+                        defaultGroupId,
+                        defaultArtifactId,
+                        normalizedVersion,
+                        alternatives
+                      );
+                      if (inferred) {
+                        return inferred;
                       }
                     }
 
@@ -261,7 +350,7 @@ jobs:
                   const lines = patch.split('\n');
                   const [mavenGroupId, mavenArtifactId] = (componentName || '').split(':');
                   const mavenTarget = ecosystem === 'maven'
-                    ? parseMavenTarget(componentName, recommendedVersion, upgradeCommand)
+                    ? await parseMavenTarget(componentName, recommendedVersion, upgradeCommand, currentVersion)
                     : null;
 
                   let position = 0;
