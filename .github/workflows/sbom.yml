@@ -210,8 +210,36 @@ jobs:
                   }
                   return null;
                 };
-                const extractAlternativeNames = (adviceObj, remediationPlanObj) => {
+                const extractAlternativeNames = (remediationObj, adviceObj, remediationPlanObj) => {
+                  const walkAndCollectByKey = (node, keySet, out) => {
+                    if (!node) return;
+                    if (Array.isArray(node)) {
+                      for (const item of node) walkAndCollectByKey(item, keySet, out);
+                      return;
+                    }
+                    if (typeof node !== 'object') return;
+                    for (const [k, v] of Object.entries(node)) {
+                      if (keySet.has(k)) {
+                        if (Array.isArray(v)) {
+                          for (const item of v) {
+                            if (typeof item === 'string') out.push(item);
+                            else if (item && typeof item === 'object') {
+                              if (item.name) out.push(String(item.name));
+                              if (item.package) out.push(String(item.package));
+                              if (item.artifact) out.push(String(item.artifact));
+                            }
+                          }
+                        } else if (typeof v === 'string') {
+                          out.push(v);
+                        }
+                      }
+                      walkAndCollectByKey(v, keySet, out);
+                    }
+                  };
+
                   const buckets = [
+                    remediationObj?.alternative_packages,
+                    remediationObj?.alternatives,
                     adviceObj?.alternative_packages,
                     remediationPlanObj?.alternative_packages,
                     adviceObj?.alternatives,
@@ -229,6 +257,11 @@ jobs:
                       names.push(bucket);
                     }
                   }
+                  walkAndCollectByKey(
+                    remediationObj,
+                    new Set(['alternative_packages', 'alternatives', 'candidate_packages', 'recommended_alternatives']),
+                    names
+                  );
                   return [...new Set(names)];
                 };
 
@@ -300,7 +333,7 @@ jobs:
                     }
 
                     // If AI didn't provide explicit coordinates, try generic inference from alternative package names.
-                    const alternatives = extractAlternativeNames(advice, remediationPlan);
+                    const alternatives = extractAlternativeNames(remediation, advice, remediationPlan);
                     const majorChanged =
                       normalizedVersion &&
                       currentVer &&
@@ -444,12 +477,17 @@ jobs:
                          ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
                          ecosystem === 'go' ? `go get ${componentName}@${recommendedVersion}` :
                          `Upgrade ${componentName} to ${recommendedVersion}`);
+                      const coordinateChangeCommand =
+                        ecosystem === 'maven' && mavenCoordinateChangeNeeded && mavenTarget
+                          ? `Update pom dependency coordinates to ${mavenTarget.groupId}:${mavenTarget.artifactId}:${mavenTarget.version}`
+                          : null;
+                      const finalUpgradeCmd = coordinateChangeCommand || upgradeCmd;
 
                       const fixComment = `✅ **Vulnerability Fix Available**\n\n` +
                         `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${effectiveVersion}\`\n\n` +
                         `**Line replacement:**\n\`\`\`diff\n${replacementDiff}\n\`\`\`\n\n` +
                         `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestionBlock}\n\`\`\`\n\n` +
-                        `**Fix command:**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
+                        `**Fix command:**\n\`\`\`bash\n${finalUpgradeCmd}\n\`\`\`\n\n` +
                         `This is a patch version upgrade (safe to apply). Always run tests after updating.`;
 
                       reviewComments.push({
