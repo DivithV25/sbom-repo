@@ -186,16 +186,42 @@ jobs:
                   mavenVersionCache.set(cacheKey, versions);
                   return versions;
                 };
+                const mavenVersionExistsCache = new Map();
+                const doesMavenArtifactVersionExist = async (groupId, artifactId, version) => {
+                  const cacheKey = `${groupId}:${artifactId}:${version}`;
+                  if (mavenVersionExistsCache.has(cacheKey)) return mavenVersionExistsCache.get(cacheKey);
+
+                  const groupPath = groupId.replace(/\./g, '/');
+                  const pomUrl = `https://repo.maven.apache.org/maven2/${groupPath}/${artifactId}/${version}/${artifactId}-${version}.pom`;
+
+                  const exists = await new Promise((resolve) => {
+                    const req = https.request(pomUrl, { method: 'HEAD' }, (res) => {
+                      resolve(res.statusCode === 200);
+                    });
+                    req.on('error', () => resolve(false));
+                    req.end();
+                  });
+
+                  mavenVersionExistsCache.set(cacheKey, exists);
+                  return exists;
+                };
 
                 const resolveMavenSameArtifactVersion = async (groupId, artifactId, preferredVersion, currentVersion) => {
                   try {
                     const available = await fetchMavenVersions(groupId, artifactId);
                     if (!available || available.length === 0) return preferredVersion;
-                    if (preferredVersion && available.includes(preferredVersion)) return preferredVersion;
+                    if (preferredVersion && available.includes(preferredVersion)) {
+                      const preferredExists = await doesMavenArtifactVersionExist(groupId, artifactId, preferredVersion);
+                      if (preferredExists) return preferredVersion;
+                    }
 
                     // Fallback to latest resolvable version for this exact artifact coordinates.
-                    const latest = available[available.length - 1];
-                    if (latest && latest !== currentVersion) return latest;
+                    for (let i = available.length - 1; i >= 0; i--) {
+                      const candidate = available[i];
+                      if (!candidate || candidate === currentVersion) continue;
+                      const candidateExists = await doesMavenArtifactVersionExist(groupId, artifactId, candidate);
+                      if (candidateExists) return candidate;
+                    }
                     return preferredVersion;
                   } catch (error) {
                     console.warn(`⚠️ Could not validate Maven version for ${groupId}:${artifactId}: ${error.message}`);
@@ -337,12 +363,14 @@ jobs:
                         continue;
                       }
 
-                      const upgradeCmd = upgradeCommand ||
-                        (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
-                         ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
-                         ecosystem === 'go' ? `go get ${componentName}@${recommendedVersion}` :
-                         ecosystem === 'maven' ? `mvn versions:use-dep-version -Dincludes=${componentName} -DdepVersion=${effectiveVersion}` :
-                         `Upgrade ${componentName} to ${recommendedVersion}`);
+                      const upgradeCmd =
+                        ecosystem === 'maven'
+                          ? `mvn versions:use-dep-version -Dincludes=${componentName} -DdepVersion=${effectiveVersion}`
+                          : (upgradeCommand ||
+                            (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
+                             ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
+                             ecosystem === 'go' ? `go get ${componentName}@${recommendedVersion}` :
+                             `Upgrade ${componentName} to ${recommendedVersion}`));
 
                       const fixComment = `✅ **Vulnerability Fix Available**\n\n` +
                         `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${effectiveVersion}\`\n\n` +
