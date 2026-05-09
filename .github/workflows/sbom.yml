@@ -126,7 +126,6 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const https = require('https');
 
             // Read the main report
             let comment = '## 🔐 PRISM Security Scan Results\n\n';
@@ -162,120 +161,6 @@ jobs:
                   pull_number: context.issue.number
                 });
 
-                const fetchText = async (url) => {
-                  return await new Promise((resolve, reject) => {
-                    https.get(url, (res) => {
-                      if (res.statusCode !== 200) {
-                        reject(new Error(`HTTP ${res.statusCode} for ${url}`));
-                        return;
-                      }
-                      let body = '';
-                      res.on('data', chunk => body += chunk);
-                      res.on('end', () => resolve(body));
-                    }).on('error', reject);
-                  });
-                };
-                const searchMavenCoordinates = async (keyword) => {
-                  const q = encodeURIComponent(`a:${keyword} OR g:${keyword}`);
-                  const url = `https://search.maven.org/solrsearch/select?q=${q}&rows=10&wt=json`;
-                  try {
-                    const responseText = await fetchText(url);
-                    const parsed = JSON.parse(responseText);
-                    const docs = parsed?.response?.docs || [];
-                    return docs
-                      .filter(d => d.g && d.a && d.latestVersion)
-                      .map(d => ({ groupId: d.g, artifactId: d.a, version: d.latestVersion }));
-                  } catch (error) {
-                    console.warn(`⚠️ Maven search failed for keyword "${keyword}": ${error.message}`);
-                    return [];
-                  }
-                };
-                const mavenSearchCache = new Map();
-                const tokenizeSearchKeyword = (raw) =>
-                  String(raw || '').trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
-                const findMavenMigrationTarget = async (currentGroupId, currentArtifactId, targetVersion, alternatives) => {
-                  const desiredMajor = String(targetVersion || '').split('.')[0];
-                  const keywords = [
-                    ...(alternatives || []).map(tokenizeSearchKeyword),
-                    tokenizeSearchKeyword(currentArtifactId),
-                    tokenizeSearchKeyword(currentGroupId?.split('.').pop())
-                  ].filter(Boolean);
-                  if (!keywords.length) return null;
-
-                  for (const keyword of keywords) {
-                    if (!mavenSearchCache.has(keyword)) {
-                      mavenSearchCache.set(keyword, await searchMavenCoordinates(keyword));
-                    }
-                    const candidates = mavenSearchCache.get(keyword) || [];
-                    // Pass 1: same target major version
-                    const majorMatch = candidates.find(c =>
-                      !(c.groupId === currentGroupId && c.artifactId === currentArtifactId) &&
-                      String(c.version || '').split('.')[0] === desiredMajor
-                    );
-                    if (majorMatch) return majorMatch;
-
-                    // Pass 2: any different coordinates as best-effort migration candidate
-                    const fallback = candidates.find(c =>
-                      !(c.groupId === currentGroupId && c.artifactId === currentArtifactId)
-                    );
-                    if (fallback) return fallback;
-                  }
-                  return null;
-                };
-                const extractAlternativeNames = (remediationObj, adviceObj, remediationPlanObj) => {
-                  const walkAndCollectByKey = (node, keySet, out) => {
-                    if (!node) return;
-                    if (Array.isArray(node)) {
-                      for (const item of node) walkAndCollectByKey(item, keySet, out);
-                      return;
-                    }
-                    if (typeof node !== 'object') return;
-                    for (const [k, v] of Object.entries(node)) {
-                      if (keySet.has(k)) {
-                        if (Array.isArray(v)) {
-                          for (const item of v) {
-                            if (typeof item === 'string') out.push(item);
-                            else if (item && typeof item === 'object') {
-                              if (item.name) out.push(String(item.name));
-                              if (item.package) out.push(String(item.package));
-                              if (item.artifact) out.push(String(item.artifact));
-                            }
-                          }
-                        } else if (typeof v === 'string') {
-                          out.push(v);
-                        }
-                      }
-                      walkAndCollectByKey(v, keySet, out);
-                    }
-                  };
-
-                  const buckets = [
-                    remediationObj?.alternative_packages,
-                    remediationObj?.alternatives,
-                    adviceObj?.alternative_packages,
-                    remediationPlanObj?.alternative_packages,
-                    adviceObj?.alternatives,
-                    remediationPlanObj?.alternatives
-                  ];
-                  const names = [];
-                  for (const bucket of buckets) {
-                    if (!bucket) continue;
-                    if (Array.isArray(bucket)) {
-                      for (const item of bucket) {
-                        if (typeof item === 'string') names.push(item);
-                        else if (item && typeof item === 'object' && item.name) names.push(String(item.name));
-                      }
-                    } else if (typeof bucket === 'string') {
-                      names.push(bucket);
-                    }
-                  }
-                  walkAndCollectByKey(
-                    remediationObj,
-                    new Set(['alternative_packages', 'alternatives', 'candidate_packages', 'recommended_alternatives']),
-                    names
-                  );
-                  return [...new Set(names)];
-                };
 
                 // Build review comments
                 const reviewComments = [];
@@ -309,59 +194,9 @@ jobs:
 
                     return cleanToken(version) || cleanToken(commandText);
                   };
-                  const parseMavenTarget = async (name, version, commandText, currentVer) => {
+                  const parseMavenTarget = (name, version, commandText) => {
                     const [defaultGroupId, defaultArtifactId] = (name || '').split(':');
                     const normalizedVersion = normalizedMavenVersion(version, commandText);
-                    const aiTextBlob = [
-                      String(commandText || ''),
-                      String(advice?.summary || ''),
-                      String(advice?.migration_instructions || ''),
-                      String(remediationPlan?.migration_instructions || ''),
-                      JSON.stringify(advice || {})
-                    ].join(' ');
-
-                    // Generic parser for Maven coordinates in AI text:
-                    //   group:artifact:version  or group:artifact@version
-                    const gavRegex = /([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+)(?::|@)([A-Za-z0-9_.-]+)/g;
-                    const matches = [...aiTextBlob.matchAll(gavRegex)];
-                    for (const match of matches) {
-                      const parsedVersion = normalizedMavenVersion(match[3], commandText);
-                      if (!parsedVersion) continue;
-
-                      const majorMatches =
-                        !normalizedVersion ||
-                        String(parsedVersion).split('.')[0] === String(normalizedVersion).split('.')[0];
-                      if (!majorMatches) continue;
-
-                      const coordinateChanged =
-                        match[1] !== defaultGroupId || match[2] !== defaultArtifactId;
-                      if (coordinateChanged) {
-                        return {
-                          groupId: match[1],
-                          artifactId: match[2],
-                          version: parsedVersion
-                        };
-                      }
-                    }
-
-                    // If AI didn't provide explicit coordinates, try generic inference from alternative package names.
-                    const alternatives = extractAlternativeNames(remediation, advice, remediationPlan);
-                    const majorChanged =
-                      normalizedVersion &&
-                      currentVer &&
-                      String(normalizedVersion).split('.')[0] !== String(currentVer).split('.')[0];
-                    if (majorChanged && alternatives.length > 0) {
-                      const inferred = await findMavenMigrationTarget(
-                        defaultGroupId,
-                        defaultArtifactId,
-                        normalizedVersion,
-                        alternatives
-                      );
-                      if (inferred) {
-                        return inferred;
-                      }
-                    }
-
                     return {
                       groupId: defaultGroupId,
                       artifactId: defaultArtifactId,
@@ -395,11 +230,10 @@ jobs:
                   const lines = patch.split('\n');
                   const [mavenGroupId, mavenArtifactId] = (componentName || '').split(':');
                   const mavenTarget = ecosystem === 'maven'
-                    ? await parseMavenTarget(componentName, recommendedVersion, upgradeCommand, currentVersion)
+                    ? parseMavenTarget(componentName, recommendedVersion, upgradeCommand)
                     : null;
 
                   let position = 0;
-                  let matchedMavenContext = null;
                   for (const line of lines) {
                     // Skip @@ header lines - don't count them in position
                     if (line.startsWith('@@')) continue;
@@ -433,9 +267,6 @@ jobs:
                         const groupMatch = !mavenGroupId || localContext.includes(`<groupId>${mavenGroupId}</groupId>`);
                         const artifactMatch = localContext.includes(`<artifactId>${mavenArtifactId}</artifactId>`);
                         shouldSuggest = groupMatch && artifactMatch;
-                        if (shouldSuggest) {
-                          matchedMavenContext = { localContext };
-                        }
                       }
                     }
 
@@ -447,37 +278,6 @@ jobs:
                       let suggestedLine = currentLine.replace(currentVersion, effectiveVersion);
                       let replacementDiff = `- ${currentLine}\n+ ${suggestedLine}`;
                       let suggestionBlock = suggestedLine;
-                      const mavenCoordinateChangeNeeded =
-                        ecosystem === 'maven' &&
-                        mavenTarget &&
-                        (
-                          (mavenTarget.groupId && mavenGroupId && mavenTarget.groupId !== mavenGroupId) ||
-                          (mavenTarget.artifactId && mavenArtifactId && mavenTarget.artifactId !== mavenArtifactId)
-                        );
-
-                      if (mavenCoordinateChangeNeeded && matchedMavenContext?.localContext) {
-                        const contextText = matchedMavenContext.localContext;
-                        const currentGroupMatch = contextText.match(/<groupId>\s*([^<]+)\s*<\/groupId>/i);
-                        const currentArtifactMatch = contextText.match(/<artifactId>\s*([^<]+)\s*<\/artifactId>/i);
-                        const currentVersionMatch = contextText.match(/<version>\s*([^<]+)\s*<\/version>/i);
-                        const dependencyBlockMatch = contextText.match(/<dependency>[\s\S]*?<\/dependency>/i);
-                        const indentMatch = currentLine.match(/^(\s*)/);
-                        const indent = indentMatch ? indentMatch[1] : '      ';
-
-                        if (dependencyBlockMatch && currentGroupMatch && currentArtifactMatch && currentVersionMatch) {
-                          const currentDependencyBlock = dependencyBlockMatch[0];
-                          const suggestedDependencyBlock =
-                            `${indent}<dependency>\n` +
-                            `${indent}  <groupId>${mavenTarget.groupId || currentGroupMatch[1]}</groupId>\n` +
-                            `${indent}  <artifactId>${mavenTarget.artifactId || currentArtifactMatch[1]}</artifactId>\n` +
-                            `${indent}  <version>${mavenTarget.version || currentVersionMatch[1]}</version>\n` +
-                            `${indent}</dependency>`;
-
-                          replacementDiff = `- ${currentDependencyBlock}\n+ ${suggestedDependencyBlock}`;
-                          suggestionBlock = suggestedDependencyBlock;
-                          suggestedLine = `${indent}<version>${mavenTarget.version || currentVersionMatch[1]}</version>`;
-                        }
-                      }
 
                       if (suggestedLine === currentLine && suggestionBlock === currentLine) {
                         console.log(`⏭️ Skipping ${componentName} - suggestion could not safely update line`);
@@ -489,17 +289,12 @@ jobs:
                          ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
                          ecosystem === 'go' ? `go get ${componentName}@${recommendedVersion}` :
                          `Upgrade ${componentName} to ${recommendedVersion}`);
-                      const coordinateChangeCommand =
-                        ecosystem === 'maven' && mavenCoordinateChangeNeeded && mavenTarget
-                          ? `Update pom dependency coordinates to ${mavenTarget.groupId}:${mavenTarget.artifactId}:${mavenTarget.version}`
-                          : null;
-                      const finalUpgradeCmd = coordinateChangeCommand || upgradeCmd;
 
                       const fixComment = `✅ **Vulnerability Fix Available**\n\n` +
                         `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${effectiveVersion}\`\n\n` +
                         `**Line replacement:**\n\`\`\`diff\n${replacementDiff}\n\`\`\`\n\n` +
                         `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestionBlock}\n\`\`\`\n\n` +
-                        `**Fix command:**\n\`\`\`bash\n${finalUpgradeCmd}\n\`\`\`\n\n` +
+                        `**Fix command:**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
                         `This is a patch version upgrade (safe to apply). Always run tests after updating.`;
 
                       reviewComments.push({
