@@ -54,9 +54,16 @@ jobs:
             npm install --prefix application --no-audit --no-fund
           fi
 
-      - name: Install Python dependencies from application
+      - name: Install scanner Python dependencies
+        if: hashFiles('requirements.txt') != ''
+        run: pip install -r requirements.txt
+
+      - name: Install Python dependencies from application (isolated venv)
         if: hashFiles('application/requirements.txt') != ''
-        run: pip install -r application/requirements.txt
+        run: |
+          python -m venv .application-py-venv
+          .application-py-venv/bin/pip install --upgrade pip
+          .application-py-venv/bin/pip install -r application/requirements.txt
 
       - name: Download Go modules from application
         if: hashFiles('application/go.mod') != ''
