@@ -126,7 +126,6 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const https = require('https');
 
             // Read the main report
             let comment = '## 🔐 PRISM Security Scan Results\n\n';
@@ -161,73 +160,6 @@ jobs:
                   repo: context.repo.repo,
                   pull_number: context.issue.number
                 });
-
-                const mavenVersionCache = new Map();
-                const fetchMavenVersions = async (groupId, artifactId) => {
-                  const cacheKey = `${groupId}:${artifactId}`;
-                  if (mavenVersionCache.has(cacheKey)) return mavenVersionCache.get(cacheKey);
-
-                  const groupPath = groupId.replace(/\./g, '/');
-                  const metadataUrl = `https://repo.maven.apache.org/maven2/${groupPath}/${artifactId}/maven-metadata.xml`;
-
-                  const metadata = await new Promise((resolve, reject) => {
-                    https.get(metadataUrl, (res) => {
-                      if (res.statusCode !== 200) {
-                        reject(new Error(`Maven metadata not found (${res.statusCode}) for ${cacheKey}`));
-                        return;
-                      }
-                      let body = '';
-                      res.on('data', chunk => body += chunk);
-                      res.on('end', () => resolve(body));
-                    }).on('error', reject);
-                  });
-
-                  const versions = [...metadata.matchAll(/<version>([^<]+)<\/version>/g)].map(m => m[1]);
-                  mavenVersionCache.set(cacheKey, versions);
-                  return versions;
-                };
-                const mavenVersionExistsCache = new Map();
-                const doesMavenArtifactVersionExist = async (groupId, artifactId, version) => {
-                  const cacheKey = `${groupId}:${artifactId}:${version}`;
-                  if (mavenVersionExistsCache.has(cacheKey)) return mavenVersionExistsCache.get(cacheKey);
-
-                  const groupPath = groupId.replace(/\./g, '/');
-                  const pomUrl = `https://repo.maven.apache.org/maven2/${groupPath}/${artifactId}/${version}/${artifactId}-${version}.pom`;
-
-                  const exists = await new Promise((resolve) => {
-                    const req = https.request(pomUrl, { method: 'HEAD' }, (res) => {
-                      resolve(res.statusCode === 200);
-                    });
-                    req.on('error', () => resolve(false));
-                    req.end();
-                  });
-
-                  mavenVersionExistsCache.set(cacheKey, exists);
-                  return exists;
-                };
-
-                const resolveMavenSameArtifactVersion = async (groupId, artifactId, preferredVersion, currentVersion) => {
-                  try {
-                    const available = await fetchMavenVersions(groupId, artifactId);
-                    if (!available || available.length === 0) return preferredVersion;
-                    if (preferredVersion && available.includes(preferredVersion)) {
-                      const preferredExists = await doesMavenArtifactVersionExist(groupId, artifactId, preferredVersion);
-                      if (preferredExists) return preferredVersion;
-                    }
-
-                    // Fallback to latest resolvable version for this exact artifact coordinates.
-                    for (let i = available.length - 1; i >= 0; i--) {
-                      const candidate = available[i];
-                      if (!candidate || candidate === currentVersion) continue;
-                      const candidateExists = await doesMavenArtifactVersionExist(groupId, artifactId, candidate);
-                      if (candidateExists) return candidate;
-                    }
-                    return preferredVersion;
-                  } catch (error) {
-                    console.warn(`⚠️ Could not validate Maven version for ${groupId}:${artifactId}: ${error.message}`);
-                    return preferredVersion;
-                  }
-                };
 
                 // Build review comments
                 const reviewComments = [];
@@ -264,7 +196,15 @@ jobs:
                   const parseMavenTarget = (name, version, commandText) => {
                     const [defaultGroupId, defaultArtifactId] = (name || '').split(':');
                     const normalizedVersion = normalizedMavenVersion(version, commandText);
-                    // Keep inline remediation within existing artifact coordinates.
+                    const cmd = String(commandText || '');
+                    const gavMatch = cmd.match(/([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+)/);
+                    if (gavMatch) {
+                      return {
+                        groupId: gavMatch[1],
+                        artifactId: gavMatch[2],
+                        version: normalizedMavenVersion(gavMatch[3], commandText) || normalizedVersion
+                      };
+                    }
                     return {
                       groupId: defaultGroupId,
                       artifactId: defaultArtifactId,
@@ -300,19 +240,9 @@ jobs:
                   const mavenTarget = ecosystem === 'maven'
                     ? parseMavenTarget(componentName, recommendedVersion, upgradeCommand)
                     : null;
-                  if (ecosystem === 'maven' && mavenTarget?.groupId && mavenTarget?.artifactId) {
-                    const resolvedVersion = await resolveMavenSameArtifactVersion(
-                      mavenTarget.groupId,
-                      mavenTarget.artifactId,
-                      mavenTarget.version,
-                      currentVersion
-                    );
-                    if (resolvedVersion) {
-                      mavenTarget.version = resolvedVersion;
-                    }
-                  }
 
                   let position = 0;
+                  let matchedMavenContext = null;
                   for (const line of lines) {
                     // Skip @@ header lines - don't count them in position
                     if (line.startsWith('@@')) continue;
@@ -346,6 +276,9 @@ jobs:
                         const groupMatch = !mavenGroupId || localContext.includes(`<groupId>${mavenGroupId}</groupId>`);
                         const artifactMatch = localContext.includes(`<artifactId>${mavenArtifactId}</artifactId>`);
                         shouldSuggest = groupMatch && artifactMatch;
+                        if (shouldSuggest) {
+                          matchedMavenContext = { localContext };
+                        }
                       }
                     }
 
@@ -357,20 +290,48 @@ jobs:
                       let suggestedLine = currentLine.replace(currentVersion, effectiveVersion);
                       let replacementDiff = `- ${currentLine}\n+ ${suggestedLine}`;
                       let suggestionBlock = suggestedLine;
+                      const mavenCoordinateChangeNeeded =
+                        ecosystem === 'maven' &&
+                        mavenTarget &&
+                        (
+                          (mavenTarget.groupId && mavenGroupId && mavenTarget.groupId !== mavenGroupId) ||
+                          (mavenTarget.artifactId && mavenArtifactId && mavenTarget.artifactId !== mavenArtifactId)
+                        );
+
+                      if (mavenCoordinateChangeNeeded && matchedMavenContext?.localContext) {
+                        const contextText = matchedMavenContext.localContext;
+                        const currentGroupMatch = contextText.match(/<groupId>\s*([^<]+)\s*<\/groupId>/i);
+                        const currentArtifactMatch = contextText.match(/<artifactId>\s*([^<]+)\s*<\/artifactId>/i);
+                        const currentVersionMatch = contextText.match(/<version>\s*([^<]+)\s*<\/version>/i);
+                        const dependencyBlockMatch = contextText.match(/<dependency>[\s\S]*?<\/dependency>/i);
+                        const indentMatch = currentLine.match(/^(\s*)/);
+                        const indent = indentMatch ? indentMatch[1] : '      ';
+
+                        if (dependencyBlockMatch && currentGroupMatch && currentArtifactMatch && currentVersionMatch) {
+                          const currentDependencyBlock = dependencyBlockMatch[0];
+                          const suggestedDependencyBlock =
+                            `${indent}<dependency>\n` +
+                            `${indent}  <groupId>${mavenTarget.groupId || currentGroupMatch[1]}</groupId>\n` +
+                            `${indent}  <artifactId>${mavenTarget.artifactId || currentArtifactMatch[1]}</artifactId>\n` +
+                            `${indent}  <version>${mavenTarget.version || currentVersionMatch[1]}</version>\n` +
+                            `${indent}</dependency>`;
+
+                          replacementDiff = `- ${currentDependencyBlock}\n+ ${suggestedDependencyBlock}`;
+                          suggestionBlock = suggestedDependencyBlock;
+                          suggestedLine = `${indent}<version>${mavenTarget.version || currentVersionMatch[1]}</version>`;
+                        }
+                      }
 
                       if (suggestedLine === currentLine && suggestionBlock === currentLine) {
                         console.log(`⏭️ Skipping ${componentName} - suggestion could not safely update line`);
                         continue;
                       }
 
-                      const upgradeCmd =
-                        ecosystem === 'maven'
-                          ? `mvn versions:use-dep-version -Dincludes=${componentName} -DdepVersion=${effectiveVersion}`
-                          : (upgradeCommand ||
-                            (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
-                             ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
-                             ecosystem === 'go' ? `go get ${componentName}@${recommendedVersion}` :
-                             `Upgrade ${componentName} to ${recommendedVersion}`));
+                      const upgradeCmd = upgradeCommand ||
+                        (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
+                         ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
+                         ecosystem === 'go' ? `go get ${componentName}@${recommendedVersion}` :
+                         `Upgrade ${componentName} to ${recommendedVersion}`);
 
                       const fixComment = `✅ **Vulnerability Fix Available**\n\n` +
                         `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${effectiveVersion}\`\n\n` +
