@@ -193,6 +193,27 @@ jobs:
 
                     return cleanToken(version) || cleanToken(commandText);
                   };
+                  const parseMavenTarget = (name, version, commandText) => {
+                    const [defaultGroupId, defaultArtifactId] = (name || '').split(':');
+                    const normalizedVersion = normalizedMavenVersion(version, commandText);
+                    const cmd = String(commandText || '');
+
+                    // Try to parse full "groupId:artifactId:version" from AI command text.
+                    const gavMatch = cmd.match(/([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+)/);
+                    if (gavMatch) {
+                      return {
+                        groupId: gavMatch[1],
+                        artifactId: gavMatch[2],
+                        version: normalizedMavenVersion(gavMatch[3], commandText) || normalizedVersion
+                      };
+                    }
+
+                    return {
+                      groupId: defaultGroupId,
+                      artifactId: defaultArtifactId,
+                      version: normalizedVersion
+                    };
+                  };
                   const recommendedVersion =
                     ecosystem === 'go'
                       ? normalizedGoVersion(recommendedVersionRaw)
@@ -219,8 +240,12 @@ jobs:
                   const patch = changedFile.patch || '';
                   const lines = patch.split('\n');
                   const [mavenGroupId, mavenArtifactId] = (componentName || '').split(':');
+                  const mavenTarget = ecosystem === 'maven'
+                    ? parseMavenTarget(componentName, recommendedVersion, upgradeCommand)
+                    : null;
 
                   let position = 0;
+                  let matchedMavenContext = null;
                   for (const line of lines) {
                     // Skip @@ header lines - don't count them in position
                     if (line.startsWith('@@')) continue;
@@ -254,12 +279,50 @@ jobs:
                         const groupMatch = !mavenGroupId || localContext.includes(`<groupId>${mavenGroupId}</groupId>`);
                         const artifactMatch = localContext.includes(`<artifactId>${mavenArtifactId}</artifactId>`);
                         shouldSuggest = groupMatch && artifactMatch;
+                        if (shouldSuggest) {
+                          matchedMavenContext = { localContext };
+                        }
                       }
                     }
 
                     if (shouldSuggest) {
-                      const suggestedLine = currentLine.replace(currentVersion, recommendedVersion);
-                      if (suggestedLine === currentLine) {
+                      const mavenCoordinateChangeNeeded =
+                        ecosystem === 'maven' &&
+                        mavenTarget &&
+                        (
+                          (mavenTarget.groupId && mavenGroupId && mavenTarget.groupId !== mavenGroupId) ||
+                          (mavenTarget.artifactId && mavenArtifactId && mavenTarget.artifactId !== mavenArtifactId)
+                        );
+
+                      let suggestedLine = currentLine.replace(currentVersion, recommendedVersion);
+                      let replacementDiff = `- ${currentLine}\n+ ${suggestedLine}`;
+                      let suggestionBlock = suggestedLine;
+
+                      if (mavenCoordinateChangeNeeded && matchedMavenContext?.localContext) {
+                        const contextText = matchedMavenContext.localContext;
+                        const currentGroupMatch = contextText.match(/<groupId>\s*([^<]+)\s*<\/groupId>/i);
+                        const currentArtifactMatch = contextText.match(/<artifactId>\s*([^<]+)\s*<\/artifactId>/i);
+                        const currentVersionMatch = contextText.match(/<version>\s*([^<]+)\s*<\/version>/i);
+                        const dependencyBlockMatch = contextText.match(/<dependency>[\s\S]*?<\/dependency>/i);
+                        const indentMatch = currentLine.match(/^(\s*)/);
+                        const indent = indentMatch ? indentMatch[1] : '      ';
+
+                        if (dependencyBlockMatch && currentGroupMatch && currentArtifactMatch && currentVersionMatch) {
+                          const currentDependencyBlock = dependencyBlockMatch[0];
+                          const suggestedDependencyBlock =
+                            `${indent}<dependency>\n` +
+                            `${indent}  <groupId>${mavenTarget.groupId || currentGroupMatch[1]}</groupId>\n` +
+                            `${indent}  <artifactId>${mavenTarget.artifactId || currentArtifactMatch[1]}</artifactId>\n` +
+                            `${indent}  <version>${mavenTarget.version || currentVersionMatch[1]}</version>\n` +
+                            `${indent}</dependency>`;
+
+                          replacementDiff = `- ${currentDependencyBlock}\n+ ${suggestedDependencyBlock}`;
+                          suggestionBlock = suggestedDependencyBlock;
+                          suggestedLine = `${indent}<version>${mavenTarget.version || currentVersionMatch[1]}</version>`;
+                        }
+                      }
+
+                      if (suggestedLine === currentLine && suggestionBlock === currentLine) {
                         console.log(`⏭️ Skipping ${componentName} - suggestion could not safely update line`);
                         continue;
                       }
@@ -272,8 +335,8 @@ jobs:
 
                       const fixComment = `✅ **Vulnerability Fix Available**\n\n` +
                         `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${recommendedVersion}\`\n\n` +
-                        `**Line replacement:**\n\`\`\`diff\n- ${currentLine}\n+ ${suggestedLine}\n\`\`\`\n\n` +
-                        `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestedLine}\n\`\`\`\n\n` +
+                        `**Line replacement:**\n\`\`\`diff\n${replacementDiff}\n\`\`\`\n\n` +
+                        `**Apply this directly in the PR:**\n\`\`\`suggestion\n${suggestionBlock}\n\`\`\`\n\n` +
                         `**Fix command:**\n\`\`\`bash\n${upgradeCmd}\n\`\`\`\n\n` +
                         `This is a patch version upgrade (safe to apply). Always run tests after updating.`;
 
