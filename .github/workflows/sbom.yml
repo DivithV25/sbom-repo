@@ -193,6 +193,7 @@ jobs:
                   // Parse the patch to find dependencies
                   const patch = changedFile.patch || '';
                   const lines = patch.split('\n');
+                  const [mavenGroupId, mavenArtifactId] = (componentName || '').split(':');
 
                   let position = 0;
                   for (const line of lines) {
@@ -204,14 +205,39 @@ jobs:
                     // Skip removed lines but count them in position
                     if (line.startsWith('-')) continue;
 
-                    // Look for the package in the line
-                    if (componentName && line.includes(componentName) && line.includes(currentVersion)) {
+                    const currentLine = line.replace(/^[+ ]/, '');
+                    let shouldSuggest = false;
+
+                    // Standard matcher (npm, pypi, go): package and version on same line
+                    if (componentName && currentLine.includes(componentName) && currentLine.includes(currentVersion)) {
+                      shouldSuggest = true;
+                    }
+
+                    // Maven matcher: name is groupId:artifactId, version is usually on separate XML line
+                    if (!shouldSuggest && ecosystem === 'maven' && mavenArtifactId && currentVersion) {
+                      const versionTagMatch = currentLine.match(/<version>\s*([^<]+)\s*<\/version>/i);
+                      if (versionTagMatch && versionTagMatch[1] === currentVersion) {
+                        // Confirm nearby artifact/group tags in added/context lines
+                        const start = Math.max(0, position - 8);
+                        const end = Math.min(lines.length, position + 8);
+                        const localContext = lines
+                          .slice(start, end)
+                          .filter(ctxLine => !ctxLine.startsWith('-'))
+                          .map(ctxLine => ctxLine.replace(/^[+ ]/, ''))
+                          .join('\n');
+
+                        const groupMatch = !mavenGroupId || localContext.includes(`<groupId>${mavenGroupId}</groupId>`);
+                        const artifactMatch = localContext.includes(`<artifactId>${mavenArtifactId}</artifactId>`);
+                        shouldSuggest = groupMatch && artifactMatch;
+                      }
+                    }
+
+                    if (shouldSuggest) {
                       const upgradeCmd = upgradeCommand ||
                         (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
                          ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
                          `Upgrade ${componentName} to ${recommendedVersion}`);
 
-                      const currentLine = line.replace(/^[+ ]/, '');
                       const suggestedLine = currentLine.replace(currentVersion, recommendedVersion);
 
                       const fixComment = `✅ **Vulnerability Fix Available**\n\n` +
