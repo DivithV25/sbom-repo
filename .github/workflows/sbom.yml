@@ -168,6 +168,7 @@ jobs:
                   const component = remediation.component || {};
                   const componentName = component.name;
                   const currentVersion = component.version;
+                  const ecosystem = (component.ecosystem || 'npm').toLowerCase();
 
                   // Handle both direct fields and nested remediation_plan fields
                   const remediationPlan = advice.remediation_plan || {};
@@ -177,10 +178,27 @@ jobs:
                     if (!version) return version;
                     return version.startsWith('v') ? version : `v${version}`;
                   };
+                  const normalizedMavenVersion = (version, commandText) => {
+                    const cleanToken = (input) => {
+                      if (!input) return null;
+                      const text = String(input).trim();
+                      if (!text) return null;
+                      // Prefer explicit versions with separators; supports 1.2.3, 2.0.0.Final, 3.1.0-RC1, etc.
+                      const versionLike = text.match(/(\d[\w.-]*\d|\d+\.\d+(?:[.\w-]+)?)/);
+                      if (versionLike && versionLike[1]) {
+                        return versionLike[1].replace(/^v(?=\d)/, '');
+                      }
+                      return text.replace(/^v(?=\d)/, '');
+                    };
+
+                    return cleanToken(version) || cleanToken(commandText);
+                  };
                   const recommendedVersion =
                     ecosystem === 'go'
                       ? normalizedGoVersion(recommendedVersionRaw)
-                      : recommendedVersionRaw;
+                      : ecosystem === 'maven'
+                        ? normalizedMavenVersion(recommendedVersionRaw, upgradeCommand)
+                        : recommendedVersionRaw;
 
                   if (!componentName || !recommendedVersion) {
                     console.log(`⏭️ Skipping ${componentName} - no recommended version available`);
@@ -188,7 +206,6 @@ jobs:
                   }
 
                   // Determine file based on ecosystem
-                  const ecosystem = (component.ecosystem || 'npm').toLowerCase();
                   let targetFile = 'package.json'; // default
                   if (ecosystem.includes('pypi')) targetFile = 'requirements.txt';
                   else if (ecosystem === 'maven') targetFile = 'pom.xml';
@@ -241,13 +258,17 @@ jobs:
                     }
 
                     if (shouldSuggest) {
+                      const suggestedLine = currentLine.replace(currentVersion, recommendedVersion);
+                      if (suggestedLine === currentLine) {
+                        console.log(`⏭️ Skipping ${componentName} - suggestion could not safely update line`);
+                        continue;
+                      }
+
                       const upgradeCmd = upgradeCommand ||
                         (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
                          ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
                          ecosystem === 'go' ? `go get ${componentName}@${recommendedVersion}` :
                          `Upgrade ${componentName} to ${recommendedVersion}`);
-
-                      const suggestedLine = currentLine.replace(currentVersion, recommendedVersion);
 
                       const fixComment = `✅ **Vulnerability Fix Available**\n\n` +
                         `Upgrade \`${componentName}\` from \`${currentVersion}\` to \`${recommendedVersion}\`\n\n` +
