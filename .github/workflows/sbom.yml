@@ -171,8 +171,16 @@ jobs:
 
                   // Handle both direct fields and nested remediation_plan fields
                   const remediationPlan = advice.remediation_plan || {};
-                  const recommendedVersion = advice.recommended_version || remediationPlan.recommended_version;
+                  const recommendedVersionRaw = advice.recommended_version || remediationPlan.recommended_version;
                   const upgradeCommand = advice.upgrade_command || remediationPlan.upgrade_command;
+                  const normalizedGoVersion = (version) => {
+                    if (!version) return version;
+                    return version.startsWith('v') ? version : `v${version}`;
+                  };
+                  const recommendedVersion =
+                    ecosystem === 'go'
+                      ? normalizedGoVersion(recommendedVersionRaw)
+                      : recommendedVersionRaw;
 
                   if (!componentName || !recommendedVersion) {
                     console.log(`⏭️ Skipping ${componentName} - no recommended version available`);
@@ -236,6 +244,7 @@ jobs:
                       const upgradeCmd = upgradeCommand ||
                         (ecosystem === 'npm' ? `npm install ${componentName}@${recommendedVersion}` :
                          ecosystem.includes('pypi') ? `pip install ${componentName}==${recommendedVersion}` :
+                         ecosystem === 'go' ? `go get ${componentName}@${recommendedVersion}` :
                          `Upgrade ${componentName} to ${recommendedVersion}`);
 
                       const suggestedLine = currentLine.replace(currentVersion, recommendedVersion);
