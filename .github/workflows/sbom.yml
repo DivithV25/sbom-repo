@@ -24,16 +24,48 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Node (for npm projects; remove for other ecosystems)
+      - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 18
 
-      - name: Install dependencies (npm ci)
-        if: always()
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Set up Java (for Maven)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Node dependencies from application
+        if: hashFiles('application/package-lock.json') != '' || hashFiles('application/package.json') != ''
         run: |
-          # Only do this if your project has a lockfile and requires install:
-          if [ -f package-lock.json ]; then npm ci; elif [ -f package.json ]; then npm install --no-audit --no-fund; fi
+          if [ -f application/package-lock.json ]; then
+            npm ci --prefix application
+          elif [ -f application/package.json ]; then
+            npm install --prefix application --no-audit --no-fund
+          fi
+
+      - name: Install Python dependencies from application
+        if: hashFiles('application/requirements.txt') != ''
+        run: pip install -r application/requirements.txt
+
+      - name: Download Go modules from application
+        if: hashFiles('application/go.mod') != ''
+        working-directory: application
+        run: go mod download
+
+      - name: Resolve Maven dependencies from application
+        if: hashFiles('application/pom.xml') != ''
+        run: mvn -B -f application/pom.xml dependency:resolve
 
       - name: Generate SBOM and upload artifact (Anchore sbom-action)
         uses: anchore/sbom-action@v0
@@ -41,17 +73,7 @@ jobs:
           # Choose format: spdx-json, cyclonedx-json, syft-json, etc.
           format: cyclonedx-json
           output-file: sbom.json
-          # target defaults to workspace; you can set TARGET to a path or image
-          # target: .
-
-      - name: Set up Python for vulnerability scanning
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install Python dependencies
-        run: |
-          pip install -r requirements.txt
+          target: application
 
       - name: Run Vulnerability Scanner
         id: vuln-scan

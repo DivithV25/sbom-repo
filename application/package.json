@@ -1,0 +1,10 @@
+{
+  "name": "application-node-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Demo Node.js dependencies for PRISM application-scoped scans",
+  "dependencies": {
+    "lodash": "4.17.11",
+    "minimist": "0.0.8"
+  }
+}
