@@ -7,14 +7,29 @@ Loads environment variables from .env file
 import os
 import yaml
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
+
+# PRISM plugin root (prism/) and host repo root (parent of prism/)
+PRISM_ROOT = Path(__file__).parent.parent
+REPO_ROOT = PRISM_ROOT.parent
+
+
+def resolve_prism_path(path: Union[str, Path]) -> Path:
+    """Resolve config-relative paths against the PRISM plugin root."""
+    resolved = Path(path)
+    if not resolved.is_absolute():
+        resolved = PRISM_ROOT / resolved
+    return resolved
+
 
 # Load environment variables from .env file
 try:
     from dotenv import load_dotenv
-    # Load .env from project root
-    env_path = Path(__file__).parent.parent / '.env'
-    load_dotenv(dotenv_path=env_path)
+    # Prefer prism/.env, then host repo .env (when PRISM is used as a plugin)
+    for env_path in (PRISM_ROOT / ".env", REPO_ROOT / ".env"):
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path)
+            break
 except ImportError:
     # python-dotenv not installed - will use system environment variables only
     pass
@@ -38,9 +53,7 @@ class PRISMConfig:
     def load_config(self, config_path: Optional[str] = None):
         """Load configuration from YAML file"""
         if config_path is None:
-            # Default to config/prism_config.yaml relative to project root
-            script_dir = Path(__file__).parent.parent
-            config_path = script_dir / "config" / "prism_config.yaml"
+            config_path = PRISM_ROOT / "config" / "prism_config.yaml"
 
         if not os.path.exists(config_path):
             raise FileNotFoundError(f"Configuration file not found: {config_path}")
@@ -169,7 +182,8 @@ class PRISMConfig:
         return self.get('policy_engine.opa.fallback_to_python', True)
 
     def get_python_rules_file(self) -> str:
-        return self.get('policy_engine.python.rules_file', 'rules/blocked_packages.yaml')
+        rules_file = self.get('policy_engine.python.rules_file', 'rules/blocked_packages.yaml')
+        return str(resolve_prism_path(rules_file))
 
     # Remediation Getters
     def get_priority_thresholds(self) -> Dict[str, float]:
