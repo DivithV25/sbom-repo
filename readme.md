@@ -31,10 +31,9 @@ This repository demonstrates **Objective 1** of the PRISM framework: automated S
 When a developer opens, updates, or reopens a pull request, this workflow:
 
 1. **Triggers automatically** on PR events (`opened`, `synchronize`, `reopened`)
-2. **Installs dependencies from `application/`** for npm, pip, Go, and Maven (when manifest files exist)
-3. **Generates a CycloneDX SBOM** scoped to `application/` containing direct and transitive dependencies
-4. **Scans vulnerabilities and posts remediation guidance** in PR comments, including inline suggestions
-5. **Uploads scan artifacts** with PR-specific naming (`sbom-pr-<number>.json`)
+2. **Generates a CycloneDX SBOM** containing all direct and transitive dependencies
+3. **Uploads the SBOM as a build artifact** with PR-specific naming (`sbom-pr-<number>.json`)
+4. **Posts a summary comment** on the PR with component statistics and download link
 
 ### Workflow Diagram
 
@@ -80,13 +79,8 @@ Example component entry:
 sbom-repo/
 ├── .github/
 │   └── workflows/
-│       └── sbom.yml          # GitHub Actions workflow for multi-ecosystem dependency security checks
-├── application/
-│   ├── package.json          # Node.js dependency manifest (demo scope)
-│   ├── requirements.txt      # Python dependency manifest (demo scope)
-│   ├── go.mod                # Go dependency manifest (demo scope)
-│   └── pom.xml               # Maven dependency manifest (demo scope)
-├── package.json              # Root project dependencies (not scanned by workflow target)
+│       └── sbom.yml          # GitHub Actions workflow for SBOM generation
+├── package.json              # Sample Node.js project with dependencies
 └── README.md                 # Project documentation
 ```
 
@@ -104,7 +98,7 @@ sbom-repo/
 1. Create a new branch and make changes
 2. Open a Pull Request against `main`
 3. The workflow triggers automatically
-4. Check the PR comments for security summary and inline remediation suggestions
+4. Check the PR comments for SBOM summary
 5. Download the artifact from the Actions tab
 
 ### Viewing Artifacts

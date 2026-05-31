@@ -222,15 +222,8 @@ class TestValidationMetrics:
         print("="*70)
 
         try:
-            # Load API key from .env
-            env_path = Path(__file__).parent.parent / ".env"
-            api_key = None
-            if env_path.exists():
-                with open(env_path) as f:
-                    for line in f:
-                        if line.startswith("OPENAI_API_KEY="):
-                            api_key = line.split("=", 1)[1].strip()
-                            break
+            # API key is loaded by config_loader from prism/.env or repo-root .env
+            api_key = os.getenv("OPENAI_API_KEY")
 
             if not api_key:
                 print("[WARNING] No OpenAI API key found - skipping AI test")

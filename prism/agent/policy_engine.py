@@ -1,7 +1,7 @@
 import yaml
 import re
 from pathlib import Path
-from agent.config_loader import get_config
+from agent.config_loader import get_config, resolve_prism_path
 
 _PROJECT_ROOT = Path(__file__).parent.parent
 
@@ -11,6 +11,8 @@ def load_rules(rules_path=None):
     if rules_path is None:
         cfg = get_config()
         rules_path = cfg.get_python_rules_file()
+    else:
+        rules_path = str(resolve_prism_path(rules_path))
 
     try:
         with open(rules_path, "r") as f:

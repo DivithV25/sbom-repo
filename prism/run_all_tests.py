@@ -20,8 +20,11 @@ Usage:
 import sys
 import subprocess
 import argparse
+import os
 from pathlib import Path
 from datetime import datetime
+
+PRISM_ROOT = Path(__file__).resolve().parent
 
 
 def run_test_suite(test_file, description, args):
@@ -30,7 +33,7 @@ def run_test_suite(test_file, description, args):
     print(f"RUNNING: {description}")
     print("="*80)
 
-    cmd = ["pytest", f"tests/{test_file}", "-v"]
+    cmd = ["pytest", str(PRISM_ROOT / "tests" / test_file), "-v"]
 
     if args.verbose:
         cmd.append("-vv")
@@ -55,6 +58,8 @@ def main():
     parser.add_argument("--capture-no", "-s", action="store_true", help="Don't capture output")
 
     args = parser.parse_args()
+
+    os.chdir(PRISM_ROOT)
 
     # Determine which tests to run
     run_all = not any([args.objective1, args.objective2, args.benchmarking,

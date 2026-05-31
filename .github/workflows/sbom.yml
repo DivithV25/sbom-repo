@@ -86,6 +86,7 @@ jobs:
         id: vuln-scan
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PYTHONPATH: prism
         run: |
           echo "🔍 Scanning SBOM for vulnerabilities..."
           python -m agent.main sbom.json --output vulnscan-output

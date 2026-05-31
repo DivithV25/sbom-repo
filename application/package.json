@@ -5,6 +5,7 @@
   "description": "Demo Node.js dependencies for PRISM application-scoped scans",
   "dependencies": {
     "lodash": "4.18.0",
-    "minimist": "1.2.6"
+    "minimist": "1.2.6",
+    "axios": "0.21.0"
   }
 }
