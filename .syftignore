@@ -1,0 +1,3 @@
+# Exclude PRISM tool itself from SBOM scanning
+# Customers will scan their own code, not PRISM's dependencies
+prism/
