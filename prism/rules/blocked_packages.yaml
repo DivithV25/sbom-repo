@@ -2,5 +2,6 @@
 # Packages listed here will always trigger a FAIL decision, regardless of CVSS score.
 
 blocked_packages:
-  - openssl
-  - lodash
+  - requests
+  - log4j-core
+  - yaml
