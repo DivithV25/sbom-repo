@@ -5,7 +5,7 @@
   "description": "Demo Node.js dependencies for PRISM application-scoped scans",
   "dependencies": {
       "react": "18.2.0",
-      "uuid": "9.0.0",
+      "uuid": "11.1.1",
       "ansi-regex": "6.0.1"
   }
 }
