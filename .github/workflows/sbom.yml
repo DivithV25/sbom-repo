@@ -80,7 +80,7 @@ jobs:
           # Choose format: spdx-json, cyclonedx-json, syft-json, etc.
           format: cyclonedx-json
           output-file: sbom.json
-          target: .
+          path: .
 
       - name: Run Vulnerability Scanner
         id: vuln-scan
