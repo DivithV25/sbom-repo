@@ -55,8 +55,8 @@ jobs:
           fi
 
       - name: Install scanner Python dependencies
-        if: hashFiles('requirements.txt') != ''
-        run: pip install -r requirements.txt
+        if: hashFiles('prism/requirements.txt') != ''
+        run: pip install -r prism/requirements.txt
 
       - name: Install Python dependencies from application (isolated venv)
         if: hashFiles('application/requirements.txt') != ''
@@ -80,7 +80,7 @@ jobs:
           # Choose format: spdx-json, cyclonedx-json, syft-json, etc.
           format: cyclonedx-json
           output-file: sbom.json
-          target: application
+          target: .
 
       - name: Run Vulnerability Scanner
         id: vuln-scan
