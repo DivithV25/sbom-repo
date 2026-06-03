@@ -8,6 +8,6 @@
     "minimist": "1.2.6",
     "serialize-javascript": "7.0.5",
     "axios": "1.16.0",
-    "handlebars": "4.7.6"
+    "handlebars": "4.7.9"
   }
 }
