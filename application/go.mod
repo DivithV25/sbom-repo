@@ -4,7 +4,7 @@ go 1.22
 
 require (
     google.golang.org/grpc v1.79.3
-    golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4
+    golang.org/x/net v1.28.0
     golang.org/x/oauth2 v0.0.0-20200107190931-bf48bf16ab8d
     google.golang.org/protobuf v1.26.0
     golang.org/x/text v0.3.2
