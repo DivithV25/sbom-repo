@@ -1,1 +1,6 @@
 requests==2.33.0
+urllib3==1.24.1
+Jinja2==2.10
+Django==1.11.29
+cryptography==3.2
+lxml==4.6.1
