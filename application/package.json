@@ -12,6 +12,6 @@
     "ws": "7.4.6",
     "node-fetch": "3.1.1",
     "jsonwebtoken": "9.0.0",
-    "socket.io-parser": "3.3.1"
+    "socket.io-parser": "4.2.3"
   }
 }
