@@ -12,21 +12,23 @@ from typing import List, Dict, Any, Optional
 import re
 
 
-def extract_fixed_version(vuln: Dict[str, Any]) -> Optional[str]:
+def extract_fixed_versions(vuln: Dict[str, Any]) -> List[str]:
     """
-    Extract the fixed version from vulnerability data.
+    Extract ALL fixed versions from vulnerability data.
     
-    Extracts from OSV format (preferred) or GitHub Advisory format.
-    Returns the FIRST/EARLIEST fixed version found, as it's typically the most conservative fix.
+    Collects all fixed versions from OSV and GitHub Advisory formats.
+    This ensures we get complete information even if data format varies between scans.
 
     Args:
         vuln: Vulnerability dictionary with raw_data from OSV/NVD/GitHub
 
     Returns:
-        Fixed version string or None if not available
+        List of fixed version strings (may be empty)
     """
+    fixed_versions = []
+    
     if "raw_data" not in vuln:
-        return None
+        return fixed_versions
     
     raw = vuln["raw_data"]
 
@@ -36,12 +38,12 @@ def extract_fixed_version(vuln: Dict[str, Any]) -> Optional[str]:
             ranges = affected.get("ranges", [])
             for range_info in ranges:
                 events = range_info.get("events", [])
-                # Look for the first 'fixed' event (earliest fix)
+                # Collect ALL fixed events, not just the first
                 for event in events:
                     if "fixed" in event:
                         fixed_version = event.get("fixed")
                         if fixed_version and isinstance(fixed_version, str):
-                            return fixed_version.strip()
+                            fixed_versions.append(fixed_version.strip())
 
     # Try GitHub Advisory format
     if "vulnerabilities" in raw:
@@ -52,9 +54,11 @@ def extract_fixed_version(vuln: Dict[str, Any]) -> Optional[str]:
                 # Extract version from patterns like ">= 2.17.1" or "2.17.1 and later"
                 match = re.search(r'>=?\s*([0-9.]+)', patched_versions)
                 if match:
-                    return match.group(1).strip()
+                    version = match.group(1).strip()
+                    if version not in fixed_versions:
+                        fixed_versions.append(version)
 
-    return None
+    return fixed_versions
 
 
 def _parse_version(version_str: str) -> Optional[tuple]:
@@ -106,9 +110,9 @@ def get_latest_safe_version(package_name: str, current_version: str, ecosystem: 
     Determine the latest safe version to upgrade to.
 
     Strategy:
-    - Find ALL fixed versions across vulnerabilities
+    - Collect ALL fixed versions from ALL vulnerabilities (no early returns)
+    - Deduplicate to ensure consistent results across scans
     - Filter to ONLY versions higher than current
-    - Deduplicate to get consistent results
     - Return highest version that fixes all known vulnerabilities
 
     Args:
@@ -125,11 +129,10 @@ def get_latest_safe_version(package_name: str, current_version: str, ecosystem: 
     
     fixed_versions = []
 
-    # Extract fixed versions from all vulnerabilities
+    # Extract fixed versions from all vulnerabilities - collect ALL for consistency
     for vuln in vulnerabilities:
-        fixed = extract_fixed_version(vuln)
-        if fixed:
-            fixed_versions.append(fixed)
+        versions = extract_fixed_versions(vuln)
+        fixed_versions.extend(versions)
 
     if not fixed_versions:
         return None
@@ -149,7 +152,7 @@ def get_latest_safe_version(package_name: str, current_version: str, ecosystem: 
             valid_versions.append(v)
 
     if not valid_versions:
-        # No valid higher versions found - return None instead of falling back
+        # No valid higher versions found - return None
         return None
 
     # Sort by version components (descending)
