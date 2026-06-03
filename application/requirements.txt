@@ -1,5 +1,5 @@
 PyYAML==5.3.1
 Jinja2==2.11.2
 paramiko==2.9.3
-aiohttp==3.7.3
+aiohttp==3.13.4
 bleach==3.3.0
