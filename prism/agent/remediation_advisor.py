@@ -15,6 +15,9 @@ import re
 def extract_fixed_version(vuln: Dict[str, Any]) -> Optional[str]:
     """
     Extract the fixed version from vulnerability data.
+    
+    Extracts from OSV format (preferred) or GitHub Advisory format.
+    Returns the FIRST/EARLIEST fixed version found, as it's typically the most conservative fix.
 
     Args:
         vuln: Vulnerability dictionary with raw_data from OSV/NVD/GitHub
@@ -22,36 +25,79 @@ def extract_fixed_version(vuln: Dict[str, Any]) -> Optional[str]:
     Returns:
         Fixed version string or None if not available
     """
-    fixed_version = None
+    if "raw_data" not in vuln:
+        return None
+    
+    raw = vuln["raw_data"]
 
-    # Try OSV raw_data format
-    if "raw_data" in vuln:
-        raw = vuln["raw_data"]
-
-        # Check OSV affected ranges
-        if "affected" in raw:
-            for affected in raw["affected"]:
-                ranges = affected.get("ranges", [])
-                for range_info in ranges:
-                    events = range_info.get("events", [])
-                    for event in events:
-                        if "fixed" in event:
-                            fixed_version = event["fixed"]
-                            return fixed_version
+    # Try OSV format first (most reliable)
+    if "affected" in raw:
+        for affected in raw["affected"]:
+            ranges = affected.get("ranges", [])
+            for range_info in ranges:
+                events = range_info.get("events", [])
+                # Look for the first 'fixed' event (earliest fix)
+                for event in events:
+                    if "fixed" in event:
+                        fixed_version = event.get("fixed")
+                        if fixed_version and isinstance(fixed_version, str):
+                            return fixed_version.strip()
 
     # Try GitHub Advisory format
-    if "ghsa_id" in vuln or "source" == "GitHub Advisory":
-        raw = vuln.get("raw_data", {})
+    if "vulnerabilities" in raw:
         vulnerabilities_data = raw.get("vulnerabilities", [])
         for vuln_data in vulnerabilities_data:
             patched_versions = vuln_data.get("patched_versions", "")
-            if patched_versions:
-                # Extract version from patterns like ">= 2.17.1"
+            if patched_versions and isinstance(patched_versions, str):
+                # Extract version from patterns like ">= 2.17.1" or "2.17.1 and later"
                 match = re.search(r'>=?\s*([0-9.]+)', patched_versions)
                 if match:
-                    return match.group(1)
+                    return match.group(1).strip()
 
-    return fixed_version
+    return None
+
+
+def _parse_version(version_str: str) -> Optional[tuple]:
+    """
+    Parse version string into tuple for comparison.
+    
+    Args:
+        version_str: Version string (e.g., "1.2.3")
+    
+    Returns:
+        Tuple of integers for comparison, or None if invalid
+    """
+    if not version_str or not isinstance(version_str, str):
+        return None
+    
+    try:
+        # Remove common prefixes
+        clean = version_str.lstrip('v')
+        parts = [int(p) for p in clean.split('.')]
+        # Pad to 10 parts for consistent comparison
+        return tuple(parts + [0] * (10 - len(parts)))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _is_version_higher(current: str, target: str) -> bool:
+    """
+    Check if target version is higher than current version.
+    
+    Args:
+        current: Current version string
+        target: Target version string
+    
+    Returns:
+        True if target > current, False otherwise
+    """
+    current_tuple = _parse_version(current)
+    target_tuple = _parse_version(target)
+    
+    if current_tuple is None or target_tuple is None:
+        return False
+    
+    return target_tuple > current_tuple
 
 
 def get_latest_safe_version(package_name: str, current_version: str, ecosystem: str,
@@ -60,9 +106,10 @@ def get_latest_safe_version(package_name: str, current_version: str, ecosystem: 
     Determine the latest safe version to upgrade to.
 
     Strategy:
-    - Find the highest fixed version across all vulnerabilities
-    - Ensure it's higher than current version
-    - Prefer minor version bumps over major (less breaking changes)
+    - Find ALL fixed versions across vulnerabilities
+    - Filter to ONLY versions higher than current
+    - Deduplicate to get consistent results
+    - Return highest version that fixes all known vulnerabilities
 
     Args:
         package_name: Package name
@@ -73,8 +120,12 @@ def get_latest_safe_version(package_name: str, current_version: str, ecosystem: 
     Returns:
         Recommended version string or None
     """
+    if not vulnerabilities:
+        return None
+    
     fixed_versions = []
 
+    # Extract fixed versions from all vulnerabilities
     for vuln in vulnerabilities:
         fixed = extract_fixed_version(vuln)
         if fixed:
@@ -83,26 +134,35 @@ def get_latest_safe_version(package_name: str, current_version: str, ecosystem: 
     if not fixed_versions:
         return None
 
-    # Sort versions (simple lexicographic sort - proper semver would be better)
-    # Filter out versions with special characters for now
-    clean_versions = [v for v in fixed_versions if re.match(r'^[0-9.]+$', v)]
+    # Deduplicate while preserving order
+    unique_versions = []
+    seen = set()
+    for v in fixed_versions:
+        if v not in seen:
+            unique_versions.append(v)
+            seen.add(v)
 
-    if not clean_versions:
-        return fixed_versions[0]  # Return first available if can't clean
+    # Filter: only keep versions with valid format and higher than current
+    valid_versions = []
+    for v in unique_versions:
+        if re.match(r'^[0-9.]+$', v) and _is_version_higher(current_version, v):
+            valid_versions.append(v)
 
-    # Sort by version components
+    if not valid_versions:
+        # No valid higher versions found - return None instead of falling back
+        return None
+
+    # Sort by version components (descending)
     def version_key(v):
-        try:
-            parts = [int(p) for p in v.split('.')]
-            # Pad to ensure consistent comparison
-            return tuple(parts + [0] * (10 - len(parts)))
-        except:
-            return (0,)
+        parsed = _parse_version(v)
+        return parsed if parsed else (0,)
 
-    clean_versions.sort(key=version_key, reverse=True)
+    valid_versions.sort(key=version_key, reverse=True)
 
-    # Return highest version
-    return clean_versions[0]
+    # Return highest version that is higher than current
+    recommended = valid_versions[0]
+    
+    return recommended
 
 
 def analyze_version_change(current_version: str, target_version: str) -> Dict[str, Any]:
@@ -229,15 +289,38 @@ def generate_remediation_advice(
         package_name, current_version, ecosystem, vulnerabilities
     )
 
+    # Determine priority first (needed for both paths)
+    is_reachable = reachability_info.get("reachable", True)
+    kev_count = sum(1 for v in vulnerabilities if v.get("is_actively_exploited", False))
+    max_cvss = max((v.get("cvss", 0) or 0 for v in vulnerabilities), default=0)
+
     if not recommended_version:
+        # No safe version found - determine priority based on severity
+        if kev_count > 0:
+            priority = "critical"
+        elif is_reachable and max_cvss >= 9.0:
+            priority = "critical"
+        elif is_reachable and max_cvss >= 7.0:
+            priority = "high"
+        else:
+            priority = "medium" if is_reachable else "low"
+        
         return {
             "recommended_version": None,
             "upgrade_command": None,
-            "priority": "unknown",
+            "priority": priority,
             "change_analysis": {},
-            "actionable_steps": ["⚠️ No fixed version available - consider alternative packages"],
-            "is_reachable": reachability_info.get("reachable", True),
-            "kev_count": 0
+            "actionable_steps": [
+                "⚠️ No higher version available with known fixes",
+                "Recommended actions:",
+                "1. Check if this package is actively maintained",
+                "2. Consider alternative packages if available",
+                "3. Review the vulnerability details for workarounds",
+                "4. If not reachable, deprioritize this fix"
+            ],
+            "is_reachable": is_reachable,
+            "kev_count": kev_count,
+            "max_cvss": max_cvss
         }
 
     # Analyze version change
@@ -247,10 +330,6 @@ def generate_remediation_advice(
     upgrade_command = generate_upgrade_command(package_name, recommended_version, ecosystem)
 
     # Determine priority
-    is_reachable = reachability_info.get("reachable", True)
-    kev_count = sum(1 for v in vulnerabilities if v.get("is_actively_exploited", False))
-    max_cvss = max((v.get("cvss", 0) or 0 for v in vulnerabilities), default=0)
-
     if kev_count > 0:
         priority = "critical"
     elif is_reachable and max_cvss >= 9.0:
