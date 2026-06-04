@@ -5,7 +5,7 @@
   "description": "Demo Node.js dependencies for PRISM application-scoped scans",
   "dependencies": {
     "ansi-regex": "6.0.1",
-    "moment": "2.19.0",
+    "moment": "2.29.4",
     "ws": "7.4.5",
     "node-fetch": "2.6.0"
   }
