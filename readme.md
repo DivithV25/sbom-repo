@@ -348,19 +348,6 @@ Action: Fix blocked packages before merge
 - [OSV Database](https://osv.dev/)
 - [CVSS Calculator](https://www.first.org/cvss/calculator/3.1)
 - [Anchore Syft](https://github.com/anchore/syft)
-- [OWASP SBOM Best Practices](https://owasp.org/www-community/Software_Bill_of_Materials_(SBOM))
-
----
-
-## License
-
-MIT License - This project is provided as-is for educational and commercial use.
-
----
-
-## Contributing
-
-Contributions welcome! Please submit issues and pull requests.
 
 ---
 
@@ -374,8 +361,6 @@ Ramaiah Institute of Technology
 | Aadarsh G K | 1MS22CY001 |
 | Divith V | 1MS22CY023 |
 | Sidrah Saif | 1MS22CY067 |
-
-**Faculty Guide:** Dr. Siddesh G.M., Professor and Head, Dept. of CSE (Cyber Security)
 
 **Current Status:** Production-ready, awaiting IEEE publication clearance for Marketplace listing.
 
